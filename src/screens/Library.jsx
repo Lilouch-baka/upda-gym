@@ -6,14 +6,14 @@ import { ProgressBar, ScreenHeader, SectionLabel } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 
 export default function Library() {
-  const { questions, topics, reviews, packInfo, usingSample } = useApp();
+  const { questions, topics, reviews, packInfo } = useApp();
   const stats = useMemo(() => topicStats(questions, topics, reviews), [questions, topics, reviews]);
   const toCheck = useMemo(() => questions.filter((q) => q.status !== 'verified'), [questions]);
   const frequent = useMemo(() => questions.filter((q) => (q.seen || 1) > 1), [questions]);
 
   return (
     <div className="screen with-tabs" style={{ gap: 18 }}>
-      <ScreenHeader eyebrow={usingSample ? 'Sample questions' : packInfo?.name || 'Question pack'} title="Library" />
+      <ScreenHeader eyebrow={`${packInfo?.name || 'Question pack'} · ${questions.length} questions`} title="Library" />
 
       <div className="grid-2">
         <button className="btn lg primary" onClick={() => navigate('/session', { mode: 'practice' })}>

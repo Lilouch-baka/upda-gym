@@ -2,8 +2,8 @@ import { openDB } from 'idb';
 
 // Everything lives on the device in IndexedDB.
 // Stores:
-//   questions   the imported question pack (one record per question). Empty until you import
-//               upda-bank.json; the app then falls back to the 5 public sample questions.
+//   questions   an imported question pack (one record per question). Empty unless you import
+//               one in Settings; the app then uses the bank built into the app (src/data/bank.json).
 //   reviews     one record per question: spaced-repetition state + answer history
 //   exams       one record per finished exam simulation (score, answers, timing)
 //   kv          settings, meta (streak, last export), pack info, token usage, weekly diagnosis,

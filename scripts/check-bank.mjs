@@ -1,6 +1,6 @@
 // Validates question packs. Run with: npm run check
-// Always checks the public sample pack (src/data/sample-pack.json); also checks the private
-// upda-bank.json when it exists on this machine, or any pack paths passed as arguments.
+// Checks the sample pack and the built-in bank (src/data/), plus upda-bank.json when it exists
+// on this machine, or any pack paths passed as arguments.
 // Rules:
 // - every id is unique
 // - every question has exactly one correct answer (answer.index points at one option, and
@@ -15,7 +15,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const files = args.length
   ? args
-  : [join(root, 'src', 'data', 'sample-pack.json'), join(root, 'upda-bank.json')].filter((f) => existsSync(f));
+  : [join(root, 'src', 'data', 'sample-pack.json'), join(root, 'src', 'data', 'bank.json'), join(root, 'upda-bank.json')].filter((f) => existsSync(f));
 
 const TYPES = ['mcq', 'numeric', 'truefalse'];
 const DIFFICULTIES = ['easy', 'medium', 'hard'];

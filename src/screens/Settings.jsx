@@ -69,12 +69,12 @@ export default function Settings() {
 
 function PackSection() {
   const app = useApp();
-  const { packInfo, usingSample, allQuestions, settings, updateSettings } = app;
+  const { packInfo, usingImported, allQuestions, settings, updateSettings, resetToBuiltIn } = app;
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
   const generated = allQuestions.filter((q) => q.generated).length;
-  const byStatus = allQuestions.reduce((m, q) => ((m[q.status] = (m[q.status] || 0) + 1), m), {});
+  const byStatus = allQuestions.filter((q) => !q.generated).reduce((m, q) => ((m[q.status] = (m[q.status] || 0) + 1), m), {});
 
   async function onImport(e) {
     const file = e.target.files?.[0];
@@ -84,7 +84,7 @@ function PackSection() {
     setMsg('');
     try {
       const data = await readJsonFile(file);
-      if (!usingSample && !window.confirm(`Replace the current pack (${packInfo.count} questions) with this file? Your progress is kept.`)) return;
+      if (!window.confirm(`Use the questions in this file instead of the current ${packInfo?.count ?? ''} questions? Your progress is kept.`)) return;
       const info = await app.importPack(data);
       setMsg(`Imported ${info.count} questions from “${info.name}”. Your progress is kept.`);
     } catch (err) {
@@ -110,8 +110,11 @@ function PackSection() {
       </SectionLabel>
       <div className="kv">
         <span className="caption">Loaded</span>
-        <span style={{ fontSize: 14, fontWeight: 500, textAlign: 'right' }}>{usingSample ? '5 sample questions' : `${packInfo.name} · ${packInfo.count}`}</span>
-        {!usingSample && (
+        <span style={{ fontSize: 14, fontWeight: 500, textAlign: 'right' }}>
+          {packInfo ? `${packInfo.name} · ${packInfo.count}` : '–'}
+          {usingImported ? ' (imported)' : ' (built in)'}
+        </span>
+        {packInfo && (
           <>
             <span className="caption">Answers</span>
             <span className="mono" style={{ fontSize: 13, textAlign: 'right' }}>
@@ -132,10 +135,22 @@ function PackSection() {
         <button className="btn primary" disabled={busy} onClick={() => fileRef.current?.click()}>
           <Icon name="upload" size={18} /> Import pack
         </button>
-        <button className="btn" disabled={usingSample} onClick={onExport}>
+        <button className="btn" onClick={onExport}>
           <Icon name="download" size={18} /> Export pack
         </button>
       </div>
+      {usingImported && (
+        <button
+          className="btn"
+          onClick={async () => {
+            if (!window.confirm('Remove the imported pack and use the questions built into the app? Your progress is kept.')) return;
+            await resetToBuiltIn();
+            setMsg('Back to the built-in questions.');
+          }}
+        >
+          <Icon name="refresh" size={18} /> Use built-in questions
+        </button>
+      )}
       <input ref={fileRef} type="file" accept="application/json,.json" className="sr-only" aria-label="Import question pack file" onChange={onImport} />
       {busy && <Spinner label="Importing…" />}
       {msg && (
@@ -146,14 +161,14 @@ function PackSection() {
       {generated > 0 && (
         <label className="toggle" style={{ fontSize: 15 }}>
           <span>
-            Include generated practice questions <span className="caption">· {generated}, not from past papers</span>
+            Include generated practice questions <span className="caption">· {generated} sample questions, not from past papers</span>
           </span>
           <input type="checkbox" switch="" checked={!!settings.includeGenerated} onChange={(e) => updateSettings({ includeGenerated: e.target.checked })} />
         </label>
       )}
       <div className="caption" style={{ fontSize: 12, lineHeight: 1.5 }}>
-        Send upda-bank.json to your iPhone (AirDrop, or save it to iCloud Drive), then tap Import pack and pick it in Files. The questions are stored on this
-        phone only; they are not part of the public app.
+        All past-paper questions are built into the app. Import pack is only needed for a newer bank (for example after adding a paper): send upda-bank.json
+        to your iPhone (iCloud Drive or AirDrop) and pick it in Files.
       </div>
     </section>
   );

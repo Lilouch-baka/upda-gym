@@ -69,9 +69,10 @@ export function AppProvider({ children }) {
   const [apiKey, setApiKeyState] = useState('');
   const [usage, setUsage] = useState({ session: { input: 0, output: 0, calls: 0 }, total: { input: 0, output: 0, calls: 0 } });
   const [diagnosis, setDiagnosis] = useState(null);
+  const [builtIn, setBuiltIn] = useState(null); // the question bank shipped with the app
 
   const load = useCallback(async () => {
-    const [s, m, rs, ex, qs, pi, notes, u, dg] = await Promise.all([
+    const [s, m, rs, ex, qs, pi, notes, u, dg, bank] = await Promise.all([
       db.kvGet('settings'),
       db.kvGet('meta'),
       db.getAll('reviews'),
@@ -81,7 +82,9 @@ export function AppProvider({ children }) {
       db.kvGet('ai_notes'),
       db.kvGet('usage_total'),
       db.kvGet('diagnosis'),
+      import('./data/bank.json').then((mod) => mod.default),
     ]);
+    setBuiltIn(bank);
     setApiKeyState(await loadApiKey());
     if (u) setUsage((prev) => ({ ...prev, total: u }));
     setDiagnosis(dg || null);
@@ -107,21 +110,27 @@ export function AppProvider({ children }) {
     db.requestPersistence();
   }, [load]);
 
-  // Without an imported pack, the app runs on the 5 public sample questions.
-  const usingSample = packQuestions.length === 0;
-  const allQuestions = usingSample ? samplePack.questions : packQuestions;
+  // The built-in bank, unless a pack was imported in Settings (e.g. a newer version).
+  // The 5 sample questions ride along as "generated" extras, off unless switched on in Settings.
+  const usingImported = packQuestions.length > 0;
+  const allQuestions = useMemo(() => {
+    const base = usingImported ? packQuestions : builtIn?.questions || [];
+    const ids = new Set(base.map((q) => q.id));
+    return [...base, ...samplePack.questions.filter((q) => !ids.has(q.id))];
+  }, [usingImported, packQuestions, builtIn]);
+  const bankInfo = usingImported ? packInfo : builtIn && { name: builtIn.name, count: builtIn.questions.length, topics: builtIn.topics, builtIn: true };
   const topics = useMemo(() => {
-    const declared = usingSample ? samplePack.topics : packInfo?.topics || [];
+    const declared = [...(bankInfo?.topics || []), ...samplePack.topics];
     const used = [...new Set(allQuestions.map((q) => q.topic))];
     const label = Object.fromEntries(declared.map((t) => [t.id, t.label]));
     const order = declared.map((t) => t.id).filter((id) => used.includes(id));
     return [...order, ...used.filter((id) => !order.includes(id))].map((id) => ({ id, label: label[id] || id }));
-  }, [usingSample, packInfo, allQuestions]);
+  }, [bankInfo, allQuestions]);
 
-  // "Generated" practice questions stay off unless switched on in Settings. Samples always show.
+  // "Generated" practice questions stay off unless switched on in Settings.
   const questions = useMemo(
-    () => (usingSample || settings.includeGenerated ? allQuestions : allQuestions.filter((q) => !q.generated)),
-    [usingSample, allQuestions, settings.includeGenerated],
+    () => (settings.includeGenerated ? allQuestions : allQuestions.filter((q) => !q.generated)),
+    [allQuestions, settings.includeGenerated],
   );
   const questionById = useMemo(() => Object.fromEntries(allQuestions.map((q) => [q.id, q])), [allQuestions]);
   const topicLabel = useCallback((id) => topics.find((t) => t.id === id)?.label || id, [topics]);
@@ -205,11 +214,16 @@ export function AppProvider({ children }) {
   );
 
   const exportPackData = useCallback(async () => {
-    const qs = await db.getAll('questions');
-    if (!qs.length) throw new Error('No question pack is loaded on this device.');
-    const info = (await db.kvGet('pack_info')) || {};
-    return { format: 'upda-gym-pack', version: 1, name: info.name, created: info.created, discipline: info.discipline, topics: info.topics || [], questions: qs };
-  }, []);
+    const qs = allQuestions.filter((q) => !q.generated || !q.id.startsWith('SAMPLE-'));
+    return { format: 'upda-gym-pack', version: 1, name: bankInfo?.name, discipline: 'architecture', topics: bankInfo?.topics || [], questions: qs };
+  }, [allQuestions, bankInfo]);
+
+  // Drop an imported pack and go back to the questions built into the app. Progress is kept.
+  const resetToBuiltIn = useCallback(async () => {
+    await db.replaceQuestions([], null);
+    await db.kvDel('pack_info');
+    await load();
+  }, [load]);
 
   // ---------- progress (never contains questions or the API key) ----------
   const exportProgressData = useCallback(async () => {
@@ -273,8 +287,9 @@ export function AppProvider({ children }) {
     questionById,
     topics,
     topicLabel,
-    usingSample,
-    packInfo,
+    usingImported,
+    packInfo: bankInfo,
+    resetToBuiltIn,
     importPack,
     exportPackData,
     exportProgressData,

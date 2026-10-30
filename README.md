@@ -1,6 +1,6 @@
 # UPDA Gym
 
-An offline iPhone study app for the Qatar UPDA engineer qualification exam (Architecture). The questions come from your own past exam papers and live **only on your phone**: this public repository contains the app and 5 sample questions, never the exam questions.
+An offline iPhone study app for the Qatar UPDA engineer qualification exam (Architecture). All 193 questions from your past papers (with answers and explanations) are **built into the app**: open it and start. This repository and the website are public, so anyone with the link can see the questions.
 
 **Live app:** <https://lilouch-baka.github.io/upda-gym/>
 
@@ -20,22 +20,13 @@ An offline iPhone study app for the Qatar UPDA engineer qualification exam (Arch
 2. Tap **Share** → **Add to Home Screen** → **Add**.
 3. Open it once from the Home Screen while online. After that it works offline (in flight mode too).
 
-## 2. Load your question pack
+## 2. Questions and backups
 
-Your questions are in `upda-bank.json` on your PC (`C:\Users\belam\upda-gym\upda-bank.json`). It is git-ignored, so it is never uploaded to GitHub.
+All past-paper questions are built in; there is nothing to import. Updating the questions (for example after adding a paper) only needs a push to GitHub: the app picks up the new version the next time it opens online.
 
-**With iCloud Drive (simplest from Windows):**
+**Settings → Import pack** is optional: it loads a different `upda-bank.json` on one device without publishing it (iCloud Drive or AirDrop → Files → pick the file). **Use built-in questions** switches back. Your progress is kept either way, because question ids stay the same.
 
-1. On the PC, open <https://www.icloud.com/iclouddrive> (or iCloud for Windows) and upload `upda-bank.json` into iCloud Drive.
-2. On the iPhone, open **UPDA Gym → Settings → Import pack**.
-3. The Files picker opens: choose **Browse → iCloud Drive → upda-bank.json**.
-4. You should see “Imported 193 questions…”. Home now shows your topics and the countdown.
-
-**With AirDrop (from a Mac):** AirDrop the file to the iPhone; it lands in **Files → Downloads**. Then **Settings → Import pack** and pick it there.
-
-Importing a new version of the pack later **keeps your progress**: question ids stay the same.
-
-Settings also has **Export pack** (saves the question pack back to Files) and, separately, **Export progress** / **Import progress** (your answers, spaced-repetition state, exam scores and settings: no questions, no API key). Export progress regularly to iCloud Drive; it is how you move to a new phone.
+**Export progress / Import progress** saves your answers, spaced-repetition state, exam scores and settings (no questions, no API key). Export it regularly to iCloud Drive; it is how you move to a new phone.
 
 ## 3. Set your exam
 
@@ -58,11 +49,12 @@ Settings also has **Export pack** (saves the question pack back to Files) and, s
 
 | Path | What | In Git? |
 |---|---|---|
-| `private/bank-src/*.json` | The questions, one file per topic, in the authoring format | No (git-ignored) |
-| `upda-bank.json` | The built pack you send to the phone | No (git-ignored) |
+| `private/bank-src/*.json` | The questions, one file per topic, in the authoring format (edit these) | No (git-ignored) |
+| `src/data/bank.json` | The built bank, shipped inside the public app | **Yes (public)** |
+| `upda-bank.json` | The same bank as a file you can import on one device | No (git-ignored) |
 | `private/DISPUTED.md` | Disputed and unverified questions with reasoning | No (git-ignored) |
 | `papers/` | Put source papers here (PDF, photos, Word) | No (git-ignored) |
-| `src/data/sample-pack.json` | 5 original sample questions for the public site | Yes |
+| `src/data/sample-pack.json` | 5 original sample questions (tagged generated, off by default) | Yes |
 
 Every question has: discipline, topic, subtopic, difficulty, type (mcq, numeric or true/false), source (paper and question numbers, page, year), how many papers it appeared in (`seen`), the paper's key, the answer the app grades against, and a status:
 
@@ -82,13 +74,13 @@ npm install
 npm run bank
 ```
 
-builds `upda-bank.json` from `private/bank-src/` and validates it.
+builds `src/data/bank.json` (in the app) and `upda-bank.json` from `private/bank-src/`, then validates them.
 
 ```bash
 npm run check
 ```
 
-validates the sample pack and `upda-bank.json`: unique ids, exactly one correct answer per question, numeric answers recomputed from their `check` formula, and an explanation (steps, why each wrong option is wrong, reference, tip) and a source on every question.
+validates the sample pack, the built-in bank and `upda-bank.json`: unique ids, exactly one correct answer per question, numeric answers recomputed from their `check` formula, and an explanation (steps, why each wrong option is wrong, reference, tip) and a source on every question.
 
 ```bash
 npm run dev
@@ -107,14 +99,14 @@ runs the app locally at <http://localhost:5174>.
    - **A question already in the bank:** don't copy it. Add `"also": [{ "paper": "UPDA 2025 Arch", "q": "17", "year": 2025 }]` to the existing entry. Its “seen in N papers” goes up, so it is prioritised.
    - **A new question:** add an entry with `"paper"`, `"year"`, `"src"` (its number in that paper), `"p"` (page), and an explicit `"id"` such as `"ARCH-STR-P2-017"` so it can't clash with the first paper's numbers. Fill `k` (the paper's key), `a` (your worked answer), `s`, `w`, `ref`, `tip`; add `"check"` for a calculation.
 3. Run `npm run bank`. Fix anything the validator reports.
-4. Send the new `upda-bank.json` to the iPhone and **Settings → Import pack**. Progress is kept.
+4. Commit and push (`git add -A`, `git commit`, `git push`). GitHub rebuilds the site, and the app updates the next time it opens online. Progress is kept.
 
 ## Deploying
 
-Every push to `main` builds and publishes the app with GitHub Actions (`.github/workflows/deploy.yml`) to GitHub Pages. The build runs `npm run check` first. On GitHub only the sample pack exists, so only it is validated there.
+Every push to `main` builds and publishes the app with GitHub Actions (`.github/workflows/deploy.yml`) to GitHub Pages. The build runs `npm run check` first, which validates the built-in bank and the sample pack.
 
 ## Privacy
 
-- The exam questions never go to GitHub: `upda-bank.json`, `private/` and `papers/` are git-ignored, and the public build contains only the 5 sample questions.
+- **The question bank is public**: it is in `src/data/bank.json` on GitHub and inside the website. Your source papers (`papers/`) and the authoring files (`private/`) stay git-ignored.
 - Progress lives in IndexedDB on your phone; the app asks iOS to keep it (persistent storage), but export it regularly.
 - No analytics, no server. The only network calls are the optional ones to `api.anthropic.com`.

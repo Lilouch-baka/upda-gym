@@ -12,7 +12,7 @@ function plural(n, one, many) {
 }
 
 export default function Home() {
-  const { questions, topics, reviews, meta, settings, usingSample } = useApp();
+  const { questions, topics, reviews, meta, settings } = useApp();
   const [unfinished, setUnfinished] = useState(null);
   const [unfinishedExam, setUnfinishedExam] = useState(null);
 
@@ -51,17 +51,6 @@ export default function Home() {
           {streak} {streak === 1 ? 'day' : 'days'}
         </div>
       </div>
-
-      {usingSample && (
-        <button className="hint-card" onClick={() => navigate('/settings')}>
-          <span style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }}>
-            <Icon name="upload" size={18} stroke={2} />
-          </span>
-          <span>
-            You are using <b>5 sample questions</b>. Import your question pack (upda-bank.json) in Settings.
-          </span>
-        </button>
-      )}
 
       <div className="card countdown">
         <div className="row-between" style={{ alignItems: 'flex-start' }}>

@@ -1,6 +1,7 @@
 // Builds the private question pack (upda-bank.json) from the authoring files in private/bank-src/.
 // Run with: npm run bank
-// Both the source folder and the output are git-ignored: exam questions never reach the public repo.
+// Writes upda-bank.json (the file to import on a phone) and src/data/bank.json (the bank built into
+// the public app). The authoring folder private/bank-src stays git-ignored.
 //
 // Authoring format (one file per topic): { topic, code, label, questions: [ ... ] } where each question is
 //   src   "15/89"       question numbers in the paper ("/" = the same question recalled more than once)
@@ -27,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const srcDir = join(root, 'private', 'bank-src');
 const outFile = join(root, 'upda-bank.json');
+const appFile = join(root, 'src', 'data', 'bank.json');
 
 const PAPER = 'ARCH UPDA (recall collection)';
 
@@ -81,8 +83,9 @@ const pack = {
   questions,
 };
 writeFileSync(outFile, JSON.stringify(pack, null, 1));
+writeFileSync(appFile, JSON.stringify(pack));
 
 const by = (k) => questions.reduce((m, q) => ((m[q[k]] = (m[q[k]] || 0) + 1), m), {});
-console.log(`Wrote ${outFile}: ${questions.length} questions`);
+console.log(`Wrote ${outFile} and ${appFile}: ${questions.length} questions`);
 console.log('By status:', by('status'));
 console.log('By topic: ', by('topic'));
