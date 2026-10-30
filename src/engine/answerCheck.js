@@ -13,9 +13,11 @@ export function checkNumeric(q, input) {
   return { valid: true, correct: diff <= tol + 1e-9, value: v, diff };
 }
 
-export function timerSeconds(q, settings) {
-  if (q.timer_s) return q.timer_s;
-  return settings.timers[q.difficulty] ?? 60;
+// Grade one answer locally. `given` is an option index (mcq / true-false) or the typed text (numeric).
+export function isCorrect(q, given) {
+  if (given === null || given === undefined || given === '') return false;
+  if (q.type === 'numeric') return checkNumeric(q, given).correct;
+  return given === q.answer.index;
 }
 
 export function formatNumber(v, unit) {

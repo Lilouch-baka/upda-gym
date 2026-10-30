@@ -11,42 +11,11 @@ export function ProgressBar({ value, height = 4, color, label }) {
   );
 }
 
-export function ScoreBar({ label, score }) {
-  return (
-    <div className="row" style={{ gap: 10 }}>
-      <div style={{ width: 96, fontSize: 14 }}>{label}</div>
-      <div className="segments" role="img" aria-label={`${label} ${score} out of 5`}>
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className={i <= score ? 'on' : ''} />
-        ))}
-      </div>
-      <div className="mono" style={{ fontSize: 14, width: 28, textAlign: 'right' }}>
-        {score}/5
-      </div>
-    </div>
-  );
-}
-
 export function SectionLabel({ children, tone }) {
   return <div className={`section-label ${tone || ''}`}>{children}</div>;
 }
 
-const ARROWS = { up: '↑', down: '↓', mixed: '↕' };
-
-export function MoveChips({ items }) {
-  if (!items || !items.length) return null;
-  return (
-    <div className="chips">
-      {items.map((it, i) => (
-        <div className="chip" key={i}>
-          {it.label} <span className={it.dir === 'up' ? 'up' : it.dir === 'down' ? 'down' : ''}>{ARROWS[it.dir] || ''}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export function Trap({ children }) {
+export function Tip({ children }) {
   if (!children) return null;
   return (
     <div className="trap">
@@ -54,7 +23,7 @@ export function Trap({ children }) {
         <Icon name="alert" size={18} stroke={2} />
       </span>
       <div className="stack" style={{ gap: 4 }}>
-        <div className="head">Common trap</div>
+        <div className="head">Exam tip · common trap</div>
         <div className="txt">{children}</div>
       </div>
     </div>
@@ -128,7 +97,6 @@ export function RingTimer({ total, remaining, small }) {
         <div className="time">
           {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
         </div>
-        {!small && <div className="caption" style={{ fontSize: 12 }}>of {total} s</div>}
       </div>
     </div>
   );
@@ -165,8 +133,8 @@ export function TabBar({ current }) {
   const tabs = [
     { id: '/', label: 'Home', icon: 'home' },
     { id: '/library', label: 'Library', icon: 'layers' },
-    { id: '/mentor', label: 'Mentor', icon: 'mentor' },
     { id: '/progress', label: 'Progress', icon: 'progress' },
+    { id: '/settings', label: 'Settings', icon: 'settings' },
   ];
   return (
     <div className="tabbar">

@@ -62,9 +62,9 @@ function mapError(e) {
  * Returns { result, usage: { input, output } }.
  */
 export async function askClaude({ apiKey, workspaceId, system, content, schema, maxTokens = 300 }) {
-  if (!apiKey) throw new MentorError('no_key', 'No API key saved. Add one in Settings, or self-grade.');
+  if (!apiKey) throw new MentorError('no_key', 'No API key saved. Add one in Settings to use this optional feature.');
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new MentorError('offline', 'You are offline. Self-grade this one; everything else works offline.');
+    throw new MentorError('offline', 'You are offline. This optional feature needs a connection; everything else works offline.');
   }
 
   // Identity-linked keys must name the workspace each request runs in.

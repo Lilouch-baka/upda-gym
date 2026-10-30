@@ -1,33 +1,31 @@
 import { openDB } from 'idb';
 
-// All progress lives on the device in IndexedDB.
+// Everything lives on the device in IndexedDB.
 // Stores:
-//   reviews           one record per question: spaced-repetition state + answer history
-//   custom_questions  questions saved from the AI mentor
-//   mentor_log        graded written answers (score 0-3, error tag, reason)
-//   kv                settings, meta (streak, last export), token usage, weekly diagnosis,
-//                     and the encrypted API key (see secrets.js)
-//   drafts            (v2) half-written answers and unfinished sessions, keyed by a string
-//   partner_attempts  (v2) one record per partner-question attempt (scorecard, error patterns)
+//   questions   the imported question pack (one record per question). Empty until you import
+//               upda-bank.json; the app then falls back to the 5 public sample questions.
+//   reviews     one record per question: spaced-repetition state + answer history
+//   exams       one record per finished exam simulation (score, answers, timing)
+//   kv          settings, meta (streak, last export), pack info, token usage, weekly diagnosis,
+//               and the encrypted API key (see secrets.js)
+//   drafts      unfinished sessions and exams, keyed by a string
 //
 // Upgrades only ever ADD stores. Existing data is never cleared.
-const dbPromise = openDB('consultant-gym', 2, {
+const dbPromise = openDB('upda-gym', 1, {
   upgrade(db, oldVersion) {
     if (oldVersion < 1) {
+      db.createObjectStore('questions', { keyPath: 'id' });
       db.createObjectStore('reviews', { keyPath: 'qid' });
-      db.createObjectStore('custom_questions', { keyPath: 'id' });
-      db.createObjectStore('mentor_log', { keyPath: 'id', autoIncrement: true });
+      db.createObjectStore('exams', { keyPath: 'id', autoIncrement: true });
       db.createObjectStore('kv');
-    }
-    if (oldVersion < 2) {
       db.createObjectStore('drafts');
-      db.createObjectStore('partner_attempts', { keyPath: 'id', autoIncrement: true });
     }
   },
 });
 
-// drafts key of the unfinished session, so Home can offer Resume.
+// drafts keys of the unfinished practice session and exam, so Home can offer Resume.
 export const SESSION_DRAFT = 'session:current';
+export const EXAM_DRAFT = 'exam:current';
 
 export async function get(store, key) {
   return (await dbPromise).get(store, key);
@@ -61,20 +59,23 @@ export async function kvDel(key) {
   return (await dbPromise).delete('kv', key);
 }
 
-// Used only by an explicit import that the user confirmed.
-export async function replaceAll({ reviews = [], custom_questions = [], mentor_log = [], partner_attempts = [], kv = {} }) {
+// Replace the question pack. Progress (reviews) is kept: ids are stable across pack versions.
+export async function replaceQuestions(questions, info) {
   const db = await dbPromise;
-  const tx = db.transaction(['reviews', 'custom_questions', 'mentor_log', 'partner_attempts', 'kv'], 'readwrite');
-  await Promise.all([
-    tx.objectStore('reviews').clear(),
-    tx.objectStore('custom_questions').clear(),
-    tx.objectStore('mentor_log').clear(),
-    tx.objectStore('partner_attempts').clear(),
-  ]);
+  const tx = db.transaction(['questions', 'kv'], 'readwrite');
+  await tx.objectStore('questions').clear();
+  for (const q of questions) tx.objectStore('questions').put(q);
+  tx.objectStore('kv').put(info, 'pack_info');
+  await tx.done;
+}
+
+// Used only by an explicit progress import that the user confirmed. Never touches the questions.
+export async function replaceProgress({ reviews = [], exams = [], kv = {} }) {
+  const db = await dbPromise;
+  const tx = db.transaction(['reviews', 'exams', 'kv'], 'readwrite');
+  await Promise.all([tx.objectStore('reviews').clear(), tx.objectStore('exams').clear()]);
   for (const r of reviews) tx.objectStore('reviews').put(r);
-  for (const q of custom_questions) tx.objectStore('custom_questions').put(q);
-  for (const m of mentor_log) tx.objectStore('mentor_log').put(m);
-  for (const a of partner_attempts) tx.objectStore('partner_attempts').put(a);
+  for (const e of exams) tx.objectStore('exams').put(e);
   for (const [k, v] of Object.entries(kv)) tx.objectStore('kv').put(v, k);
   await tx.done;
 }

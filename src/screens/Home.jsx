@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as db from '../storage/db.js';
-import { useApp, currentStreak } from '../state.jsx';
+import { useApp, currentStreak, daysUntil } from '../state.jsx';
 import { navigate } from '../router.js';
-import { estimateMinutes, mixQueue } from '../engine/sessionBuilder.js';
-import { attemptedCount, pct, trackMastery, weeklyTopError } from '../engine/stats.js';
-import { LENSES } from '../data/tracks.js';
+import { dailyQueue, estimateMinutes, mistakeQueue } from '../engine/sessionBuilder.js';
+import { pct, readiness, topicStats } from '../engine/stats.js';
 import { ProgressBar } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 
@@ -13,49 +12,29 @@ function plural(n, one, many) {
 }
 
 export default function Home() {
-  const { questions, reviews, meta, partner, partnerItems, accountingItems, partnerAttempts, mentorLog } = useApp();
-  const loaded = !!partner && accountingItems !== null;
-  const accounting = accountingItems || [];
+  const { questions, topics, reviews, meta, settings, usingSample } = useApp();
   const [unfinished, setUnfinished] = useState(null);
+  const [unfinishedExam, setUnfinishedExam] = useState(null);
 
   useEffect(() => {
     db.get('drafts', db.SESSION_DRAFT).then((d) => {
       // Offer to resume for a week; older half-sessions are just dropped from Home.
       if (d && d.idx < d.ids.length && Date.now() - d.savedAt < 7 * 86400000) setUnfinished(d);
     });
+    db.get('drafts', db.EXAM_DRAFT).then((d) => d && !d.finished && setUnfinishedExam(d));
   }, []);
 
-  const mix = useMemo(
-    () => (loaded ? mixQueue({ fundamentals: questions, accounting, partner: partnerItems, reviews }) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loaded, questions, accountingItems, partnerItems, reviews],
-  );
-  const counts = useMemo(() => {
-    const c = { fundamentals: 0, accounting: 0, partner: 0 };
-    (mix || []).forEach((q) => (c[q.track] += 1));
-    return c;
-  }, [mix]);
-
-  const fundMastery = useMemo(() => trackMastery(questions, reviews), [questions, reviews]);
-  const accMastery = useMemo(() => trackMastery(accounting, reviews), [accounting, reviews]);
-  const lensDone = useMemo(
-    () =>
-      LENSES.map((l) => {
-        const items = partnerItems.filter((q) => q.lens === l.id);
-        return { ...l, total: items.length, done: attemptedCount(items, reviews) };
-      }),
-    [partnerItems, reviews],
-  );
-  const partnerDone = lensDone.reduce((n, l) => n + l.done, 0);
-  const topError = useMemo(() => weeklyTopError(partnerAttempts, mentorLog), [partnerAttempts, mentorLog]);
+  const daily = useMemo(() => dailyQueue(questions, reviews), [questions, reviews]);
+  const mistakes = useMemo(() => mistakeQueue(questions, reviews), [questions, reviews]);
+  const ready = useMemo(() => readiness(questions, reviews), [questions, reviews]);
+  const stats = useMemo(() => topicStats(questions, topics, reviews), [questions, topics, reviews]);
 
   const streak = currentStreak(meta);
+  const days = daysUntil(settings.examDate);
   const dateLabel = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
-
-  const mixParts = [];
-  if (counts.fundamentals) mixParts.push(plural(counts.fundamentals, 'ratio card', 'ratio cards'));
-  if (counts.accounting) mixParts.push(plural(counts.accounting, 'entry', 'entries'));
-  if (counts.partner) mixParts.push(plural(counts.partner, 'partner question', 'partner questions'));
+  const examDateLabel = settings.examDate
+    ? new Date(settings.examDate + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : 'not set';
 
   return (
     <div className="screen with-tabs" style={{ gap: 18 }}>
@@ -65,13 +44,58 @@ export default function Home() {
             {dateLabel}
             {meta.studyDays ? ` · Day ${meta.studyDays}` : ''}
           </div>
-          <h1 className="title">Consultant Gym</h1>
+          <h1 className="title">UPDA Gym</h1>
         </div>
         <div className="pill" aria-label={`${streak} day streak`}>
           <Icon name="flame" size={14} stroke={2} />
           {streak} {streak === 1 ? 'day' : 'days'}
         </div>
       </div>
+
+      {usingSample && (
+        <button className="hint-card" onClick={() => navigate('/settings')}>
+          <span style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }}>
+            <Icon name="upload" size={18} stroke={2} />
+          </span>
+          <span>
+            You are using <b>5 sample questions</b>. Import your question pack (upda-bank.json) in Settings.
+          </span>
+        </button>
+      )}
+
+      <div className="card countdown">
+        <div className="row-between" style={{ alignItems: 'flex-start' }}>
+          <div className="stack" style={{ gap: 2 }}>
+            <div className="mono big-num">{days === null ? '–' : Math.max(0, days)}</div>
+            <div className="caption">{days === null ? 'Set your exam date in Settings' : days < 0 ? 'Exam date has passed' : `${days === 1 ? 'day' : 'days'} to the exam · ${examDateLabel}`}</div>
+          </div>
+          <div className="stack" style={{ gap: 2, alignItems: 'flex-end' }}>
+            <div className="mono big-num" style={{ color: ready.accuracy === null ? 'var(--muted)' : ready.accuracy >= settings.exam.passMark / 100 ? 'var(--correct)' : 'var(--wrong)' }}>
+              {pct(ready.accuracy)}
+            </div>
+            <div className="caption">readiness</div>
+          </div>
+        </div>
+        <ProgressBar value={ready.coverage} label="Verified questions practised in the last 30 days" />
+        <div className="caption" style={{ fontSize: 12 }}>
+          Readiness = rolling accuracy on verified questions (last 30 days). {pct(ready.coverage)} of them practised. Pass mark {settings.exam.passMark}%.
+        </div>
+      </div>
+
+      {unfinishedExam && (
+        <button className="resume-card" onClick={() => navigate('/exam', { resume: '1' })}>
+          <span style={{ color: 'var(--accent)', flexShrink: 0 }}>
+            <Icon name="clock" size={20} stroke={2} />
+          </span>
+          <span className="stack" style={{ flex: 1, gap: 2, textAlign: 'left' }}>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>Resume exam simulation</span>
+            <span className="caption">
+              {Object.values(unfinishedExam.answers || {}).filter((a) => a !== null && a !== '').length} of {unfinishedExam.ids.length} answered · timer kept running
+            </span>
+          </span>
+          <Icon name="chevron" size={18} />
+        </button>
+      )}
 
       {unfinished && (
         <button className="resume-card" onClick={() => navigate('/session', { ...unfinished.params, resume: '1' })}>
@@ -88,73 +112,57 @@ export default function Home() {
         </button>
       )}
 
-      <button className="mix-btn" disabled={!mix || !mix.length} onClick={() => navigate('/session', { mode: 'mix' })}>
+      <button className="mix-btn" disabled={!daily.length} onClick={() => navigate('/session', { mode: 'daily' })}>
         <div className="stack" style={{ flex: 1, gap: 2 }}>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>
-            Today’s mix{mix && mix.length ? ` · ${estimateMinutes(mix)} min` : ''}
-          </div>
-          <div style={{ fontSize: 13 }}>{!mix ? 'Loading tracks…' : mix.length ? mixParts.join(' · ') : 'All caught up for today'}</div>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>Today’s review{daily.length ? ` · ${estimateMinutes(daily)} min` : ''}</div>
+          <div style={{ fontSize: 13 }}>{daily.length ? `${plural(daily.length, 'question', 'questions')}: due + new, frequent first` : 'All caught up for today'}</div>
         </div>
         <Icon name="send" size={22} stroke={2.2} />
       </button>
 
-      <div className="eyebrow">Tracks</div>
-
-      <button className="track-card" onClick={() => navigate('/library', { track: 'fundamentals' })}>
-        <div className="row-between" style={{ width: '100%' }}>
-          <div style={{ fontSize: 17, fontWeight: 600 }}>Finance fundamentals</div>
-          <div className="mono" style={{ fontSize: 14 }}>
-            {pct(fundMastery)}
-          </div>
-        </div>
-        <div className="caption">Ratios · 3 statements · returns · ratio tree</div>
-        <div style={{ width: '100%' }}>
-          <ProgressBar value={fundMastery} label="Finance fundamentals mastery" />
-        </div>
-      </button>
-
-      <button className="track-card" onClick={() => navigate('/library', { track: 'accounting' })}>
-        <div className="row-between" style={{ width: '100%' }}>
-          <div style={{ fontSize: 17, fontWeight: 600 }}>Financial accounting</div>
-          <div className="mono" style={{ fontSize: 14 }}>
-            {accounting.length ? pct(accMastery) : 'soon'}
-          </div>
-        </div>
-        <div className="caption">Chapter by chapter · journal entries · concepts</div>
-        <div style={{ width: '100%' }}>
-          <ProgressBar value={accMastery} label="Financial accounting mastery" />
-        </div>
-      </button>
-
-      <button className="track-card" onClick={() => navigate('/library', { track: 'partner' })}>
-        <div className="row-between" style={{ width: '100%' }}>
-          <div style={{ fontSize: 17, fontWeight: 600 }}>Partner analysis</div>
-          <div className="mono" style={{ fontSize: 14 }}>
-            {partnerDone} / {partnerItems.length || 70}
-          </div>
-        </div>
-        <div className="grid-4" style={{ width: '100%', gap: 6 }}>
-          {lensDone.map((l) => (
-            <div key={l.id} className="stack" style={{ gap: 6 }}>
-              <div className="mono caption" style={{ fontSize: 11 }}>
-                {l.id} {l.done}/{l.total}
-              </div>
-              <ProgressBar value={l.total ? l.done / l.total : 0} label={`${l.name} done`} />
-            </div>
-          ))}
-        </div>
-      </button>
-
-      {topError && (
-        <button className="hint-card" onClick={() => navigate('/progress')}>
-          <span style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }}>
-            <Icon name="target" size={18} stroke={2} />
-          </span>
-          <span>
-            Most common error this week: <b>{topError.label.toLowerCase()}</b> ({topError.n} of {topError.total} {topError.source === 'partner' ? 'partner answers' : 'written answers'})
+      <div className="grid-2">
+        <button className="tile" onClick={() => navigate('/session', { mode: 'practice' })}>
+          <Icon name="target" size={20} stroke={2} />
+          <span className="tile-title">Practice</span>
+          <span className="caption">All topics, instant feedback</span>
+        </button>
+        <button className="tile" onClick={() => navigate('/exam')}>
+          <Icon name="clock" size={20} stroke={2} />
+          <span className="tile-title">Exam simulation</span>
+          <span className="caption">
+            {settings.exam.questions} Q · {settings.exam.minutes} min
           </span>
         </button>
-      )}
+        <button className="tile" disabled={!mistakes.length} onClick={() => navigate('/session', { mode: 'mistakes' })}>
+          <Icon name="refresh" size={20} stroke={2} />
+          <span className="tile-title">Mistakes</span>
+          <span className="caption">{mistakes.length ? plural(mistakes.length, 'question', 'questions') : 'None right now'}</span>
+        </button>
+        <button className="tile" onClick={() => navigate('/session', { mode: 'quick' })}>
+          <Icon name="bolt" size={20} stroke={2} />
+          <span className="tile-title">Quick 10</span>
+          <span className="caption">10 random questions</span>
+        </button>
+      </div>
+
+      <div className="eyebrow">Readiness by topic</div>
+      <div className="card pad-sm" style={{ gap: 4 }}>
+        {stats.map((t) => (
+          <button key={t.id} className="topic-row" onClick={() => navigate('/session', { mode: 'practice', topic: t.id })}>
+            <div className="row-between" style={{ width: '100%' }}>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>{t.label}</span>
+              <span className="mono" style={{ fontSize: 13 }}>
+                {pct(t.readiness)}
+              </span>
+            </div>
+            <ProgressBar
+              value={t.readiness ?? 0}
+              color={t.readiness === null ? undefined : t.readiness >= settings.exam.passMark / 100 ? 'var(--correct)' : 'var(--wrong-strong)'}
+              label={`${t.label} readiness`}
+            />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

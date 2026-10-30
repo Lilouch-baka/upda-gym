@@ -1,36 +1,54 @@
 import { shuffle } from './answerCheck.js';
-import { LAYERS } from '../data/curriculum.js';
 
-const DAY = 24 * 60 * 60 * 1000;
-export const NEW_PER_DAY = 10;
-export const DAILY_CAP = 25;
+export const NEW_PER_DAY = 15;
+export const DAILY_CAP = 30;
+export const PRACTICE_SIZE = 15;
 
 // Rough seconds per question, used for time estimates.
-export const SECONDS_PER_FORMAT = { mcq: 40, flashcard: 20, mental_math: 45, written: 180, journal_entry: 90, partner: 480 };
+export const SECONDS_PER_QUESTION = 45;
 
 export const MODES = {
-  mix: { title: 'Today’s mix' },
-  partner: { title: 'Partner analysis' },
-  accounting: { title: 'Financial accounting' },
-  review: { title: 'Review' },
+  practice: { title: 'Practice' },
+  quick: { title: 'Quick 10' },
+  mistakes: { title: 'Mistakes' },
   daily: { title: 'Daily review' },
-  layer: { title: 'Layer drill' },
-  topic: { title: 'Topic drill' },
-  mixed: { title: 'Mixed exam' },
-  hard: { title: 'Hard mode' },
-  speed: { title: 'Speed round' },
+  review: { title: 'Review' },
+  exam: { title: 'Exam simulation' },
 };
 
-// Lower = study sooner. Overdue first, then never-seen, then the ones due soonest.
-function priority(q, reviews, now) {
-  const r = reviews[q.id];
-  if (!r || r.reps + r.lapses === 0) return 1 + Math.random() * 0.5;
-  if (r.due <= now) return Math.random() * 0.5;
-  return 2 + (r.due - now) / DAY + Math.random() * 0.5;
+function seen(r) {
+  return !!(r && r.history && r.history.length);
 }
 
-function byPriority(list, reviews, now) {
-  return [...list].sort((a, b) => priority(a, reviews, now) - priority(b, reviews, now));
+// How strongly a question should be favoured: recalled in several papers and yellow-marked
+// questions come up more.
+export function frequencyWeight(q) {
+  return 1 + 0.5 * Math.max(0, (q.seen || 1) - 1) + (q.priority ? 0.5 : 0);
+}
+
+// Weighted random order (Efraimidis–Spirakis): heavier questions tend to come first.
+export function weightedOrder(list, weight = frequencyWeight) {
+  return list
+    .map((q) => ({ q, k: Math.pow(Math.random(), 1 / weight(q)) }))
+    .sort((a, b) => b.k - a.k)
+    .map((x) => x.q);
+}
+
+// Due first (oldest first), then never seen (frequent first), then the rest (weakest first).
+function practiceOrder(pool, reviews, now) {
+  const due = [];
+  const fresh = [];
+  const rest = [];
+  for (const q of pool) {
+    const r = reviews[q.id];
+    if (!seen(r)) fresh.push(q);
+    else if (r.reps + r.lapses > 0 && r.due <= now) due.push(q);
+    else rest.push(q);
+  }
+  due.sort((a, b) => reviews[a.id].due - reviews[b.id].due);
+  const lastWrong = (q) => (reviews[q.id].history.slice(-1)[0]?.correct ? 1 : 0);
+  rest.sort((a, b) => lastWrong(a) - lastWrong(b) || reviews[a.id].due - reviews[b.id].due);
+  return [...due, ...weightedOrder(fresh), ...rest];
 }
 
 export function dailyQueue(questions, reviews, now = Date.now()) {
@@ -38,75 +56,64 @@ export function dailyQueue(questions, reviews, now = Date.now()) {
   const fresh = [];
   for (const q of questions) {
     const r = reviews[q.id];
-    if (!r || r.reps + r.lapses === 0) fresh.push(q);
-    else if (r.due <= now) due.push(q);
+    if (!r || r.reps + r.lapses === 0) {
+      if (!seen(r)) fresh.push(q);
+    } else if (r.due <= now) due.push(q);
   }
   due.sort((a, b) => reviews[a.id].due - reviews[b.id].due);
-  // New cards: favour foundations first (lower layer, easier), with some variety.
-  const rank = { easy: 0, medium: 1, hard: 2 };
-  const newOnes = shuffle(fresh)
-    .sort((a, b) => a.layer + rank[a.difficulty] - (b.layer + rank[b.difficulty]))
-    .slice(0, Math.max(0, Math.min(NEW_PER_DAY, DAILY_CAP - due.length)));
+  const newOnes = weightedOrder(fresh).slice(0, Math.max(0, Math.min(NEW_PER_DAY, DAILY_CAP - due.length)));
   return shuffle([...due.slice(0, DAILY_CAP), ...newOnes]).slice(0, DAILY_CAP);
 }
 
-function seen(r) {
-  return r && r.reps + r.lapses > 0;
+// Questions whose most recent answer was wrong, most recent mistake first.
+export function mistakeQueue(questions, reviews) {
+  return questions
+    .filter((q) => {
+      const h = reviews[q.id]?.history;
+      return h && h.length && !h[h.length - 1].correct;
+    })
+    .sort((a, b) => reviews[b.id].history.slice(-1)[0].ts - reviews[a.id].history.slice(-1)[0].ts);
 }
 
-// Due first (oldest first), then unseen in file order.
-function dueThenNew(items, reviews, now, n) {
-  const due = items.filter((q) => seen(reviews[q.id]) && reviews[q.id].due <= now).sort((a, b) => reviews[a.id].due - reviews[b.id].due);
-  const fresh = items.filter((q) => !seen(reviews[q.id]));
-  return [...due, ...fresh].slice(0, n);
+// Exam paper: n questions spread across topics in proportion to the bank, frequent ones favoured.
+export function examPaper(questions, n) {
+  const byTopic = {};
+  for (const q of questions) (byTopic[q.topic] ||= []).push(q);
+  const total = questions.length;
+  const picked = [];
+  const leftovers = [];
+  for (const list of Object.values(byTopic)) {
+    const ordered = weightedOrder(list);
+    const share = Math.floor((list.length / total) * n);
+    picked.push(...ordered.slice(0, share));
+    leftovers.push(...ordered.slice(share));
+  }
+  picked.push(...weightedOrder(leftovers).slice(0, Math.max(0, n - picked.length)));
+  return shuffle(picked.slice(0, n));
 }
 
-// Today's mix: fundamentals review, a few accounting items and one partner question (~20 min).
-export function mixQueue({ fundamentals, accounting = [], partner = [], reviews, now = Date.now() }) {
-  const fund = dailyQueue(fundamentals, reviews, now).slice(0, 12);
-  const acc = dueThenNew(accounting, reviews, now, 5);
-  const part = dueThenNew(partner, reviews, now, 1);
-  // Interleave accounting into the fundamentals cards; partner question last (it is the long one).
-  const mixed = [...fund];
-  acc.forEach((q, i) => mixed.splice(Math.min(mixed.length, (i + 1) * 3), 0, q));
-  return [...mixed, ...part];
-}
-
-export function buildSession(mode, { questions, reviews, layer, topic, difficulty, accounting = [], partner = [], lens, now = Date.now() }) {
+export function buildSession(mode, { questions, reviews, topic, ids, examSize, now = Date.now() }) {
   switch (mode) {
-    case 'mix':
-      return mixQueue({ fundamentals: questions, accounting, partner, reviews, now });
-    case 'partner':
-      return dueThenNew(lens ? partner.filter((q) => q.lens === lens) : partner, reviews, now, 3);
-    case 'accounting':
-      return dueThenNew(accounting.filter((q) => !topic || q.chapter === Number(topic)), reviews, now, 10);
+    case 'practice': {
+      const pool = topic ? questions.filter((q) => q.topic === topic) : questions;
+      return practiceOrder(pool, reviews, now).slice(0, topic ? 20 : PRACTICE_SIZE);
+    }
+    case 'quick':
+      return weightedOrder(questions).slice(0, 10);
+    case 'mistakes':
+      return mistakeQueue(questions, reviews).slice(0, 25);
     case 'daily':
       return dailyQueue(questions, reviews, now);
-    case 'layer':
-      return byPriority(questions.filter((q) => q.layer === Number(layer)), reviews, now).slice(0, 15);
-    case 'topic': {
-      let pool = questions.filter((q) => q.topic === topic);
-      if (difficulty) pool = pool.filter((q) => q.difficulty === difficulty);
-      return byPriority(pool, reviews, now).slice(0, 12);
-    }
-    case 'hard':
-      return byPriority(questions.filter((q) => q.difficulty === 'hard' && (!layer || q.layer === Number(layer))), reviews, now).slice(0, 12);
-    case 'speed':
-      return byPriority(questions.filter((q) => q.format === 'mental_math' && (!layer || q.layer === Number(layer))), reviews, now).slice(0, 10);
-    case 'mixed': {
-      const picked = [];
-      for (const l of LAYERS) {
-        const pool = shuffle(questions.filter((q) => q.layer === l.id && q.format !== 'flashcard'));
-        picked.push(...pool.slice(0, 4));
-      }
-      return shuffle(picked);
-    }
+    case 'exam':
+      return examPaper(questions, examSize || 50);
+    case 'review':
+      return (ids || []).map((id) => questions.find((q) => q.id === id)).filter(Boolean);
     default:
       return [];
   }
 }
 
 export function estimateMinutes(queue) {
-  const s = queue.reduce((sum, q) => sum + (SECONDS_PER_FORMAT[q.format] || 45), 0);
-  return Math.max(1, Math.round(s / 60));
+  return Math.max(1, Math.round((queue.length * SECONDS_PER_QUESTION) / 60));
 }
+

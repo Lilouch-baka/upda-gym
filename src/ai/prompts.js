@@ -1,102 +1,91 @@
-// The API is used for exactly two things:
-//  a) grading written answers (score 0-3, one-line reason, error tag)
-//  b) a weekly weakness diagnosis from a SUMMARY of the mentor log (counts only, never raw history)
-// Everything else (MCQ, flashcards, numeric answers) is graded locally.
-import { LAYER_BY_ID, TOPIC_BY_ID } from '../data/curriculum.js';
-import { buildStatements, computeRatios } from '../finance/model.js';
+// The API is used for exactly three things, all optional:
+//  a) "Explain more": a follow-up explanation of the CURRENT question (≤ 150 words)
+//  b) "I think this answer is wrong": re-check that ONE question and give a verdict
+//  c) a weekly weak-topic diagnosis from a SUMMARY only (counts by topic), never the bank itself
+// Every answer is graded on the phone; the app works fully offline without a key.
 
-export const ERROR_TAGS = ['Concept', 'Formula', 'Arithmetic', 'Units-format', 'Misread', 'Guessed'];
-export const TAG_HELP = {
-  Concept: 'misunderstood the idea',
-  Formula: 'wrong formula or definition',
-  Arithmetic: 'calculation slip',
-  'Units-format': 'units, %, sign or scale',
-  Misread: 'answered a different question',
-  Guessed: 'no real reasoning',
-};
-export const SCORE_LABEL = ['Wrong', 'Partly right', 'Mostly right', 'Fully right'];
+const LETTERS = 'ABCDEF';
 
-const MAX_ANSWER_CHARS = 2000;
+function questionBlock(q, given) {
+  const lines = [`Question: ${q.prompt}`];
+  if (q.options) {
+    lines.push('Options:');
+    q.options.forEach((o, i) => lines.push(`${LETTERS[i]}. ${o}`));
+    lines.push(`Answer used by the app: ${LETTERS[q.answer.index]}. ${q.options[q.answer.index]}`);
+    if (q.paper_key !== null && q.paper_key !== undefined && q.paper_key !== q.answer.index) {
+      lines.push(`The past paper's key says: ${LETTERS[q.paper_key]}. ${q.options[q.paper_key]}`);
+    }
+    if (given !== null && given !== undefined && q.options[given] !== undefined) lines.push(`The student chose: ${LETTERS[given]}. ${q.options[given]}`);
+  } else if (q.answer?.value !== undefined) {
+    lines.push(`Answer used by the app: ${q.answer.value} ${q.answer.unit || ''}`.trim());
+    if (given !== null && given !== undefined) lines.push(`The student answered: ${given}`);
+  }
+  const ex = q.explanation || {};
+  if (ex.steps?.length) lines.push(`Current explanation: ${ex.steps.join(' ')}`);
+  if (ex.reference) lines.push(`Reference given: ${ex.reference}`);
+  return lines.join('\n');
+}
 
-// ---------- a) grading ----------
-export const GRADE_SYSTEM = `You grade a finance student's written answer against the expected answer. Be strict and direct; no praise.
-Score: 3 = correct and complete; 2 = mostly correct, one minor gap; 1 = partly correct, an important error or omission; 0 = wrong, missing or irrelevant.
-reason: one sentence, at most 30 words, naming the specific gap (or why it is complete).
-tag: the main error type. Concept = misunderstood the idea; Formula = wrong formula or definition; Arithmetic = calculation slip; Units-format = units, %, sign or scale; Misread = answered a different question; Guessed = no reasoning shown. Use None only when the score is 3.`;
+// ---------- a) explain more ----------
+export const EXPLAIN_SYSTEM = `You tutor an architect preparing for the Qatar UPDA engineer qualification exam (multiple choice).
+Explain the question below more deeply than the existing explanation: the underlying principle, how to recognise this type of question, and how to rule out the distractors.
+If the student chose a wrong option, address that misconception directly.
+Plain text, at most 150 words, no headings, no preamble. Cite a code or standard only if you are certain of it.`;
 
-export const GRADE_SCHEMA = {
+export function explainContent(q, given) {
+  return questionBlock(q, given);
+}
+
+// ---------- b) re-check one question ----------
+export const RECHECK_SYSTEM = `You independently re-check one exam question for an architect preparing for the Qatar UPDA exam.
+Solve it yourself first, then compare with the answer the app uses.
+verdict: "agree" if the app's answer is correct, "disagree" if another option is clearly better, "ambiguous" if the question is flawed or more than one option is defensible.
+best_option: the letter of the option you think is best.
+confidence: low, medium or high.
+reasoning: at most 120 words, specific, no preamble. Cite a code, standard or clause only if you are certain it is correct.`;
+
+export const RECHECK_SCHEMA = {
   type: 'object',
   properties: {
-    score: { type: 'integer', enum: [0, 1, 2, 3] },
-    reason: { type: 'string' },
-    tag: { type: 'string', enum: [...ERROR_TAGS, 'None'] },
+    verdict: { type: 'string', enum: ['agree', 'disagree', 'ambiguous'] },
+    best_option: { type: 'string', enum: ['A', 'B', 'C', 'D', 'E', 'F', 'n/a'] },
+    confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+    reasoning: { type: 'string' },
   },
-  required: ['score', 'reason', 'tag'],
+  required: ['verdict', 'best_option', 'confidence', 'reasoning'],
   additionalProperties: false,
 };
 
-// Only questions about the sample company need its figures.
-function usesCompany(q) {
-  return q.uses_company || /northwind/i.test(q.prompt);
+export function recheckContent(q, comment) {
+  return questionBlock(q, null) + (comment ? `\nThe student's comment: ${comment.slice(0, 500)}` : '');
 }
 
-export function companyFigures(company) {
-  const s = buildStatements(company);
-  const r = computeRatios(s);
-  const f = (x) => Math.round(x * 10) / 10;
-  return `Northwind (${company.currency}): revenue ${f(s.revenue)}, COGS ${f(s.cogs)}, EBITDA ${f(s.ebitda)}, EBIT ${f(s.ebit)}, interest ${f(s.interest)}, net income ${f(
-    s.netIncome,
-  )}, total assets ${f(s.totalAssets)}, equity ${f(s.equity)}, net debt ${f(r.netDebt)}; ROE ${f(r.roe * 100)}%, ROIC ${f(r.roic * 100)}%, DSO ${f(r.dso)}d, DIO ${f(
-    r.dio,
-  )}d, DPO ${f(r.dpo)}d.`;
-}
+// ---------- c) weekly diagnosis (summary only) ----------
+export const DIAGNOSIS_SYSTEM = `You coach an architect preparing for the Qatar UPDA engineer qualification exam.
+You receive ONLY summary statistics by topic (no questions). Identify the weakest topics and give a concrete plan for the coming week.
+summary: 2 sentences on the overall picture.
+focus: up to 3 topics, each with why (one sentence, citing the numbers) and action (one concrete study action).
+plan: one sentence on how to split study time this week.`;
 
-export function gradeContent(q, answer, company) {
-  const expected = q.answer?.model_answer || '';
-  const points = q.answer?.rubric?.length ? `\nKey points: ${q.answer.rubric.join('; ')}` : '';
-  const figures = usesCompany(q) ? `\nFigures: ${companyFigures(company)}` : '';
-  const trimmed = answer.length > MAX_ANSWER_CHARS ? answer.slice(0, MAX_ANSWER_CHARS) + ' […]' : answer;
-  return `Question: ${q.prompt}\nExpected answer: ${expected}${points}${figures}\nStudent answer: """${trimmed}"""`;
-}
+export const DIAGNOSIS_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string' },
+    focus: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { topic: { type: 'string' }, why: { type: 'string' }, action: { type: 'string' } },
+        required: ['topic', 'why', 'action'],
+        additionalProperties: false,
+      },
+    },
+    plan: { type: 'string' },
+  },
+  required: ['summary', 'focus', 'plan'],
+  additionalProperties: false,
+};
 
-export function normalizeGrade(g) {
-  const score = Math.max(0, Math.min(3, Math.round(Number(g?.score) || 0)));
-  let tag = ERROR_TAGS.includes(g?.tag) ? g.tag : null;
-  if (score === 3) tag = null;
-  if (score < 3 && !tag) tag = 'Concept';
-  return { score, reason: String(g?.reason || '').slice(0, 300), tag };
-}
-
-export const ANSWER_LIMIT = MAX_ANSWER_CHARS;
-
-// ---------- b) weekly diagnosis ----------
-// Builds a compact summary: counts by topic and tag over the last 7 days. No answers, no prompts.
-export function summarizeLog(mentorLog, days = 7, now = Date.now()) {
-  const since = now - days * 24 * 60 * 60 * 1000;
-  const entries = mentorLog.filter((m) => m.ts >= since && typeof m.score === 'number');
-  const byTopic = {};
-  const tags = {};
-  for (const m of entries) {
-    const key = m.topic || 'unknown';
-    const t = (byTopic[key] ||= { topic: TOPIC_BY_ID[key]?.name || key, layer: m.layer, n: 0, scoreSum: 0, tags: {} });
-    t.n += 1;
-    t.scoreSum += m.score;
-    if (m.tag) {
-      t.tags[m.tag] = (t.tags[m.tag] || 0) + 1;
-      tags[m.tag] = (tags[m.tag] || 0) + 1;
-    }
-  }
-  const topics = Object.values(byTopic)
-    .map((t) => ({ topic: t.topic, layer: t.layer, n: t.n, avgScore: Math.round((t.scoreSum / t.n) * 10) / 10, tags: t.tags }))
-    .sort((a, b) => a.avgScore - b.avgScore || b.n - a.n);
-  return { days, graded: entries.length, tags, topics };
-}
-
-export const DIAGNOSIS_SYSTEM = `You are a demanding senior CFO coaching a finance student (ACCA, then CFA). You receive only a summary of their graded written answers from the last week: counts by topic, average score (0-3) and error-tag counts. Write at most 150 words, plain text, no headings, no praise. Cover: the 2-3 most important weaknesses, the likely root cause behind the dominant error tags, and exactly what to drill next week (topics and type of practice). If the data is thin, say so in one line and still give a recommendation.`;
-
-export function diagnosisContent(summary) {
-  const lines = summary.topics.map(
-    (t) => `- L${t.layer} ${LAYER_BY_ID[t.layer]?.short || ''} / ${t.topic}: ${t.n} graded, avg ${t.avgScore}/3, tags ${JSON.stringify(t.tags)}`,
-  );
-  return `Last ${summary.days} days: ${summary.graded} written answers graded.\nError tags overall: ${JSON.stringify(summary.tags)}\nBy topic (weakest first):\n${lines.join('\n')}`;
+export function diagnosisContent(summary, daysLeft) {
+  return `Days until the exam: ${daysLeft ?? 'unknown'}\nStatistics (JSON):\n${JSON.stringify(summary)}`;
 }

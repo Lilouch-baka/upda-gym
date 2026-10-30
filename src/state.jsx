@@ -1,20 +1,21 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as db from './storage/db.js';
-import { DEFAULT_COMPANY_MODE, loadAccounting, loadFundamentals, loadPartner } from './data/tracks.js';
+import samplePack from './data/sample-pack.json';
 import { newReview, schedule } from './engine/srs.js';
-import { DEFAULT_COMPANY, sanitizeCompany } from './finance/model.js';
 import { clearApiKey, loadApiKey, saveApiKey } from './storage/secrets.js';
 
 // The API key is NOT a setting: it lives encrypted in storage/secrets.js and only in memory here.
 export const DEFAULT_SETTINGS = {
   workspaceId: '',
-  companyMode: DEFAULT_COMPANY_MODE,
-  partnerQuick: false,
   theme: 'light',
   reduceMotion: false,
   hintsSeen: {},
-  timers: { easy: 30, medium: 60, hard: 90 },
-  company: DEFAULT_COMPANY,
+  examDate: '2026-11-15',
+  // Exam simulation format. Placeholders until confirmed: change them in Settings.
+  exam: { questions: 50, minutes: 90, passMark: 60 },
+  // Optional per-question countdown in practice (0 = off).
+  practiceTimer: 0,
+  includeGenerated: false,
 };
 
 const DEFAULT_META = { streak: 0, lastStudyDay: null, studyDays: 0, lastExport: null };
@@ -43,83 +44,83 @@ export function applyMotion(reduce) {
   else delete document.documentElement.dataset.motion;
 }
 
+// Light check of an imported pack: enough to refuse the wrong file, not a full validation
+// (npm run check does that on the PC before the file is sent to the phone).
+export function checkPack(data) {
+  if (!data || data.format !== 'upda-gym-pack' || !Array.isArray(data.questions)) {
+    throw new Error('This file is not a UPDA Gym question pack (upda-bank.json).');
+  }
+  const bad = data.questions.filter((q) => !q.id || !q.prompt || !q.answer || !q.topic);
+  if (bad.length) throw new Error(`${bad.length} question(s) in this pack are incomplete.`);
+  if (new Set(data.questions.map((q) => q.id)).size !== data.questions.length) throw new Error('This pack has duplicate question ids.');
+  return data;
+}
+
 export function AppProvider({ children }) {
   const [ready, setReady] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [meta, setMeta] = useState(DEFAULT_META);
   const [reviews, setReviews] = useState({});
-  const [customQuestions, setCustomQuestions] = useState([]);
-  const [mentorLog, setMentorLog] = useState([]);
+  const [exams, setExams] = useState([]);
+  const [packQuestions, setPackQuestions] = useState([]);
+  const [packInfo, setPackInfo] = useState(null);
+  const [aiNotes, setAiNotes] = useState({});
   const [apiKey, setApiKeyState] = useState('');
   const [usage, setUsage] = useState({ session: { input: 0, output: 0, calls: 0 }, total: { input: 0, output: 0, calls: 0 } });
   const [diagnosis, setDiagnosis] = useState(null);
-  const [fundamentals, setFundamentals] = useState([]);
-  const [partner, setPartner] = useState(null); // { playbook, items } once loaded
-  const [accountingItems, setAccountingItems] = useState(null);
-  const [partnerAttempts, setPartnerAttempts] = useState([]);
 
   const load = useCallback(async () => {
-    const [s, m, rs, cq, ml, u, dg, pa, fund] = await Promise.all([
+    const [s, m, rs, ex, qs, pi, notes, u, dg] = await Promise.all([
       db.kvGet('settings'),
       db.kvGet('meta'),
       db.getAll('reviews'),
-      db.getAll('custom_questions'),
-      db.getAll('mentor_log'),
+      db.getAll('exams'),
+      db.getAll('questions'),
+      db.kvGet('pack_info'),
+      db.kvGet('ai_notes'),
       db.kvGet('usage_total'),
       db.kvGet('diagnosis'),
-      db.getAll('partner_attempts'),
-      loadFundamentals(),
     ]);
-    setFundamentals(fund);
-    setPartnerAttempts(pa.sort((a, b) => b.ts - a.ts));
-    // Migrate a key saved in plain text by the first version into encrypted storage.
-    if (s && s.apiKey) {
-      await saveApiKey(s.apiKey);
-      delete s.apiKey;
-      delete s.model;
-      await db.kvSet('settings', s);
-    }
     setApiKeyState(await loadApiKey());
     if (u) setUsage((prev) => ({ ...prev, total: u }));
     setDiagnosis(dg || null);
     const merged = { ...DEFAULT_SETTINGS, ...(s || {}) };
-    merged.timers = { ...DEFAULT_SETTINGS.timers, ...(s?.timers || {}) };
-    merged.company = sanitizeCompany(s?.company || DEFAULT_COMPANY);
+    merged.exam = { ...DEFAULT_SETTINGS.exam, ...(s?.exam || {}) };
     setSettings(merged);
     applyTheme(merged.theme);
     applyMotion(merged.reduceMotion);
     setMeta({ ...DEFAULT_META, ...(m || {}) });
     setReviews(Object.fromEntries(rs.map((r) => [r.qid, r])));
-    setCustomQuestions(cq);
-    setMentorLog(ml.sort((a, b) => b.ts - a.ts));
+    setExams(ex.sort((a, b) => a.ts - b.ts));
+    setPackQuestions(qs);
+    setPackInfo(qs.length ? pi || { name: 'Question pack', count: qs.length } : null);
+    setAiNotes(notes || {});
     setReady(true);
   }, []);
 
   useEffect(() => {
     load();
     db.requestPersistence();
-    // The other two tracks load in the background after the first screen.
-    loadPartner().then(setPartner);
-    loadAccounting().then(setAccountingItems);
   }, [load]);
 
-  // Fundamentals (plus any custom questions). Kept under the old name for existing screens.
-  const questions = useMemo(() => {
-    const ids = new Set(fundamentals.map((q) => q.id));
-    return [...fundamentals, ...customQuestions.filter((q) => !ids.has(q.id)).map((q) => ({ track: 'fundamentals', ...q }))];
-  }, [fundamentals, customQuestions]);
+  // Without an imported pack, the app runs on the 5 public sample questions.
+  const usingSample = packQuestions.length === 0;
+  const allQuestions = usingSample ? samplePack.questions : packQuestions;
+  const topics = useMemo(() => {
+    const declared = usingSample ? samplePack.topics : packInfo?.topics || [];
+    const used = [...new Set(allQuestions.map((q) => q.topic))];
+    const label = Object.fromEntries(declared.map((t) => [t.id, t.label]));
+    const order = declared.map((t) => t.id).filter((id) => used.includes(id));
+    return [...order, ...used.filter((id) => !order.includes(id))].map((id) => ({ id, label: label[id] || id }));
+  }, [usingSample, packInfo, allQuestions]);
 
-  const partnerItems = useMemo(() => (partner ? partner.items : []), [partner]);
-
-  // Every item from every track; ids are unique across tracks.
-  const allItems = useMemo(() => [...questions, ...(accountingItems || []), ...partnerItems], [questions, accountingItems, partnerItems]);
-  const questionById = useMemo(() => Object.fromEntries(allItems.map((q) => [q.id, q])), [allItems]);
-
-  const addPartnerAttempt = useCallback(async (attempt) => {
-    const rec = { ...attempt, ts: Date.now() };
-    const id = await db.put('partner_attempts', rec);
-    setPartnerAttempts((prev) => [{ ...rec, id }, ...prev]);
-  }, []);
+  // "Generated" practice questions stay off unless switched on in Settings. Samples always show.
+  const questions = useMemo(
+    () => (usingSample || settings.includeGenerated ? allQuestions : allQuestions.filter((q) => !q.generated)),
+    [usingSample, allQuestions, settings.includeGenerated],
+  );
+  const questionById = useMemo(() => Object.fromEntries(allQuestions.map((q) => [q.id, q])), [allQuestions]);
+  const topicLabel = useCallback((id) => topics.find((t) => t.id === id)?.label || id, [topics]);
 
   const updateSettings = useCallback(async (patch) => {
     setSettings((prev) => {
@@ -144,12 +145,12 @@ export function AppProvider({ children }) {
 
   // Record one answered question: update spaced repetition and history.
   const recordAnswer = useCallback(
-    (qid, { correct, rating, ms, given }) => {
+    (qid, { correct, rating, ms, given, mode }) => {
       const now = Date.now();
       setReviews((prev) => {
         const base = prev[qid] || newReview(qid);
-        const next = schedule(base, rating, now);
-        next.history = [...(base.history || []), { ts: now, correct: !!correct, rating, ms: ms || null, given: given ?? null }].slice(-30);
+        const next = rating === null || rating === undefined ? { ...base } : schedule(base, rating, now);
+        next.history = [...(base.history || []), { ts: now, correct: !!correct, rating: rating ?? null, ms: ms || null, given: given ?? null, mode: mode || null }].slice(-30);
         db.put('reviews', next);
         return { ...prev, [qid]: next };
       });
@@ -158,20 +159,18 @@ export function AppProvider({ children }) {
     [touchStreak],
   );
 
-  const saveCustomQuestion = useCallback(async (q) => {
-    await db.put('custom_questions', q);
-    setCustomQuestions((prev) => [...prev.filter((x) => x.id !== q.id), q]);
+  const addExam = useCallback(async (exam) => {
+    const id = await db.put('exams', exam);
+    setExams((prev) => [...prev, { ...exam, id }]);
+    return id;
   }, []);
 
-  const deleteCustomQuestion = useCallback(async (id) => {
-    await db.del('custom_questions', id);
-    setCustomQuestions((prev) => prev.filter((x) => x.id !== id));
-  }, []);
-
-  const addMentorLog = useCallback(async (entry) => {
-    const rec = { ...entry, ts: Date.now() };
-    const id = await db.put('mentor_log', rec);
-    setMentorLog((prev) => [{ ...rec, id }, ...prev]);
+  const saveAiNote = useCallback((qid, note) => {
+    setAiNotes((prev) => {
+      const next = { ...prev, [qid]: { ...note, ts: Date.now() } };
+      db.kvSet('ai_notes', next);
+      return next;
+    });
   }, []);
 
   const markExported = useCallback(() => {
@@ -181,6 +180,54 @@ export function AppProvider({ children }) {
       return next;
     });
   }, []);
+
+  // ---------- question pack ----------
+  const importPack = useCallback(
+    async (data) => {
+      const pack = checkPack(data);
+      const info = {
+        name: pack.name || 'Question pack',
+        count: pack.questions.length,
+        topics: pack.topics || [],
+        discipline: pack.discipline || null,
+        created: pack.created || null,
+        importedAt: Date.now(),
+      };
+      await db.replaceQuestions(pack.questions, info);
+      await load();
+      return info;
+    },
+    [load],
+  );
+
+  const exportPackData = useCallback(async () => {
+    const qs = await db.getAll('questions');
+    if (!qs.length) throw new Error('No question pack is loaded on this device.');
+    const info = (await db.kvGet('pack_info')) || {};
+    return { format: 'upda-gym-pack', version: 1, name: info.name, created: info.created, discipline: info.discipline, topics: info.topics || [], questions: qs };
+  }, []);
+
+  // ---------- progress (never contains questions or the API key) ----------
+  const exportProgressData = useCallback(async () => {
+    const [rs, ex] = await Promise.all([db.getAll('reviews'), db.getAll('exams')]);
+    return { app: 'upda-gym', version: 1, exportedAt: new Date().toISOString(), settings, meta, reviews: rs, exams: ex };
+  }, [settings, meta]);
+
+  const importProgressData = useCallback(
+    async (data) => {
+      if (!data || data.app !== 'upda-gym') {
+        if (data?.format === 'upda-gym-pack') throw new Error('This is a question pack: use "Import question pack" instead.');
+        throw new Error('This file is not a UPDA Gym progress export.');
+      }
+      await db.replaceProgress({
+        reviews: Array.isArray(data.reviews) ? data.reviews : [],
+        exams: Array.isArray(data.exams) ? data.exams : [],
+        kv: { settings: { ...DEFAULT_SETTINGS, ...(data.settings || {}) }, meta: { ...DEFAULT_META, ...(data.meta || {}) } },
+      });
+      await load();
+    },
+    [load],
+  );
 
   // ---------- API key (encrypted at rest, only in memory here) ----------
   const setApiKey = useCallback(async (plain) => {
@@ -209,46 +256,29 @@ export function AppProvider({ children }) {
     setDiagnosis(d);
   }, []);
 
-  const exportData = useCallback(async () => {
-    const [rs, cq, ml, pa] = await Promise.all([
-      db.getAll('reviews'),
-      db.getAll('custom_questions'),
-      db.getAll('mentor_log'),
-      db.getAll('partner_attempts'),
-    ]);
-    // Settings never contain the API key, and the encrypted key is not exported.
-    return {
-      app: 'consultant-gym',
-      version: 3,
-      exportedAt: new Date().toISOString(),
-      settings,
-      meta,
-      reviews: rs,
-      custom_questions: cq,
-      mentor_log: ml,
-      partner_attempts: pa,
-    };
-  }, [settings, meta]);
-
-  const importData = useCallback(
-    async (data) => {
-      if (!data || data.app !== 'consultant-gym') throw new Error('This file is not a Consultant Gym export.');
-      // eslint-disable-next-line no-unused-vars
-      const { apiKey: _ignored, model: _m, ...imported } = data.settings || {};
-      const nextSettings = { ...DEFAULT_SETTINGS, ...imported };
-      await db.replaceAll({
-        reviews: Array.isArray(data.reviews) ? data.reviews : [],
-        custom_questions: Array.isArray(data.custom_questions) ? data.custom_questions : [],
-        mentor_log: Array.isArray(data.mentor_log) ? data.mentor_log : [],
-        partner_attempts: Array.isArray(data.partner_attempts) ? data.partner_attempts : [],
-        kv: { settings: nextSettings, meta: { ...DEFAULT_META, ...(data.meta || {}) } },
-      });
-      await load();
-    },
-    [load],
-  );
-
   const value = {
+    ready,
+    settings,
+    updateSettings,
+    meta,
+    reviews,
+    exams,
+    addExam,
+    questions,
+    allQuestions,
+    questionById,
+    topics,
+    topicLabel,
+    usingSample,
+    packInfo,
+    importPack,
+    exportPackData,
+    exportProgressData,
+    importProgressData,
+    markExported,
+    recordAnswer,
+    aiNotes,
+    saveAiNote,
     apiKey,
     setApiKey,
     removeApiKey,
@@ -256,28 +286,6 @@ export function AppProvider({ children }) {
     recordUsage,
     diagnosis,
     saveDiagnosis,
-    ready,
-    settings,
-    updateSettings,
-    meta,
-    reviews,
-    questions,
-    questionById,
-    allItems,
-    partner,
-    partnerItems,
-    accountingItems,
-    partnerAttempts,
-    addPartnerAttempt,
-    customQuestions,
-    saveCustomQuestion,
-    deleteCustomQuestion,
-    mentorLog,
-    addMentorLog,
-    recordAnswer,
-    exportData,
-    importData,
-    markExported,
   };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
@@ -290,4 +298,13 @@ export function currentStreak(meta) {
   if (!meta.lastStudyDay) return 0;
   if (meta.lastStudyDay === dayKey() || meta.lastStudyDay === yesterdayKey()) return meta.streak;
   return 0;
+}
+
+export function daysUntil(dateStr, now = Date.now()) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const target = new Date(y, m - 1, d).getTime();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target - today.getTime()) / 86400000);
 }

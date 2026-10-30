@@ -1,132 +1,113 @@
-import { ALL_TOPICS, LAYERS } from '../data/curriculum.js';
-
 const DAY = 24 * 60 * 60 * 1000;
+// Rolling window for readiness: the last attempts of each question within this many days.
+const READINESS_DAYS = 30;
+const LAST_PER_QUESTION = 3;
+
+function mean(xs) {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+}
 
 // Mastery of one question, 0..1. Long intervals + recent accuracy = mastered.
 export function questionMastery(review) {
   if (!review || !review.history || review.history.length === 0) return 0;
   const recent = review.history.slice(-5);
   const acc = recent.filter((h) => h.correct).length / recent.length;
-  const spacing = Math.min(1, review.interval / 21);
-  return spacing * 0.7 + acc * 0.3;
+  const spacing = Math.min(1, (review.interval || 0) / 21);
+  return spacing * 0.6 + acc * 0.4;
 }
 
-function mean(xs) {
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+// Recent attempts of one question (last few, inside the rolling window).
+function recentAttempts(review, since) {
+  if (!review?.history) return [];
+  return review.history.filter((h) => h.ts >= since).slice(-LAST_PER_QUESTION);
 }
 
-export function computeStats(questions, reviews, now = Date.now()) {
+// Readiness = rolling accuracy on VERIFIED questions only (disputed or unverified keys don't count).
+export function readiness(questions, reviews, now = Date.now()) {
+  const since = now - READINESS_DAYS * DAY;
+  const verified = questions.filter((q) => q.status === 'verified');
+  const all = verified.flatMap((q) => recentAttempts(reviews[q.id], since));
+  const byTopic = {};
+  for (const q of verified) {
+    const t = (byTopic[q.topic] ||= { attempts: 0, correct: 0, questions: 0, tried: 0 });
+    const a = recentAttempts(reviews[q.id], since);
+    t.questions += 1;
+    if (a.length) t.tried += 1;
+    t.attempts += a.length;
+    t.correct += a.filter((h) => h.correct).length;
+  }
+  for (const t of Object.values(byTopic)) t.accuracy = t.attempts ? t.correct / t.attempts : null;
+  return {
+    accuracy: all.length ? all.filter((h) => h.correct).length / all.length : null,
+    attempts: all.length,
+    coverage: verified.length ? verified.filter((q) => recentAttempts(reviews[q.id], since).length).length / verified.length : 0,
+    byTopic,
+  };
+}
+
+export function topicStats(questions, topics, reviews, now = Date.now()) {
+  const ready = readiness(questions, reviews, now);
+  return topics.map((t) => {
+    const qs = questions.filter((q) => q.topic === t.id);
+    const tried = qs.filter((q) => reviews[q.id]?.history?.length);
+    const hist = tried.flatMap((q) => reviews[q.id].history);
+    return {
+      ...t,
+      count: qs.length,
+      frequent: qs.filter((q) => (q.seen || 1) > 1).length,
+      tried: tried.length,
+      mastery: qs.length ? mean(qs.map((q) => questionMastery(reviews[q.id]))) : 0,
+      accuracy: hist.length ? hist.filter((h) => h.correct).length / hist.length : null,
+      readiness: ready.byTopic[t.id]?.accuracy ?? null,
+    };
+  });
+}
+
+// Weakest topics: lowest accuracy among practised topics (at least 3 answers), then untouched ones.
+export function weakestTopics(stats, n = 5) {
+  const practised = stats.filter((t) => t.accuracy !== null && t.tried >= 1).sort((a, b) => a.accuracy - b.accuracy || a.mastery - b.mastery);
+  const untouched = stats.filter((t) => t.accuracy === null).sort((a, b) => b.count - a.count);
+  return [...practised, ...untouched].slice(0, n);
+}
+
+// Weekly error report: last 7 days, wrong answers grouped by topic, with the questions behind them.
+export function weeklyReport(questions, topics, reviews, now = Date.now()) {
+  const since = now - 7 * DAY;
   const qById = Object.fromEntries(questions.map((q) => [q.id, q]));
-  const since = now - 30 * DAY;
-
-  const attempts = [];
+  let attempts = 0;
+  let correct = 0;
+  const wrongByTopic = {};
   for (const r of Object.values(reviews)) {
     const q = qById[r.qid];
     if (!q) continue;
     for (const h of r.history || []) {
-      if (h.ts >= since) attempts.push({ ...h, q });
+      if (h.ts < since) continue;
+      attempts += 1;
+      if (h.correct) correct += 1;
+      else (wrongByTopic[q.topic] ||= new Set()).add(q.id);
     }
   }
-
-  const accuracy = attempts.length ? attempts.filter((a) => a.correct).length / attempts.length : null;
-  const mental = attempts.filter((a) => a.q.format === 'mental_math' && a.ms);
-  const avgMentalMs = mental.length ? mean(mental.map((a) => a.ms)) : null;
-
-  const byDifficulty = {};
-  for (const d of ['easy', 'medium', 'hard']) {
-    const xs = attempts.filter((a) => a.q.difficulty === d);
-    byDifficulty[d] = xs.length ? xs.filter((a) => a.correct).length / xs.length : null;
-  }
-
-  const topicMastery = {};
-  const topicAttempts = {};
-  for (const t of ALL_TOPICS) {
-    const qs = questions.filter((q) => q.topic === t.id);
-    topicMastery[t.id] = qs.length ? mean(qs.map((q) => questionMastery(reviews[q.id]))) : 0;
-    topicAttempts[t.id] = qs.reduce((n, q) => n + ((reviews[q.id] && reviews[q.id].history.length) || 0), 0);
-  }
-
-  const layerMastery = {};
-  for (const l of LAYERS) {
-    const qs = questions.filter((q) => q.layer === l.id);
-    layerMastery[l.id] = qs.length ? mean(qs.map((q) => questionMastery(reviews[q.id]))) : 0;
-  }
-
-  // Weakest: topics you've practised, lowest mastery first; then untouched ones.
-  const practised = ALL_TOPICS.filter((t) => topicAttempts[t.id] > 0).sort((a, b) => topicMastery[a.id] - topicMastery[b.id]);
-  const untouched = ALL_TOPICS.filter((t) => topicAttempts[t.id] === 0);
-  const weakest = [...practised, ...untouched].slice(0, 5).map((t) => ({ ...t, mastery: topicMastery[t.id], attempts: topicAttempts[t.id] }));
-
-  const totalAnswered = Object.values(reviews).reduce((n, r) => n + (r.history ? r.history.length : 0), 0);
-
-  return { attempts: attempts.length, accuracy, avgMentalMs, byDifficulty, topicMastery, layerMastery, weakest, totalAnswered };
+  const label = Object.fromEntries(topics.map((t) => [t.id, t.label]));
+  const rows = Object.entries(wrongByTopic)
+    .map(([topic, ids]) => ({ topic, label: label[topic] || topic, ids: [...ids] }))
+    .sort((a, b) => b.ids.length - a.ids.length);
+  return { attempts, correct, accuracy: attempts ? correct / attempts : null, rows };
 }
 
-export function trackMastery(items, reviews) {
-  return items.length ? mean(items.map((q) => questionMastery(reviews[q.id]))) : 0;
-}
-
-export function attemptedCount(items, reviews) {
-  return items.filter((q) => reviews[q.id] && reviews[q.id].history && reviews[q.id].history.length).length;
-}
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-// Most frequent error this week: partner error patterns first, then written-answer tags.
-export function weeklyTopError(partnerAttempts, mentorLog, now = Date.now()) {
-  const since = now - 7 * DAY_MS;
-  const recent = partnerAttempts.filter((a) => a.ts >= since);
-  const count = {};
-  for (const a of recent) for (const p of a.patterns || []) count[p] = (count[p] || 0) + 1;
-  let source = 'partner';
-  let total = recent.length;
-  if (!Object.keys(count).length) {
-    const graded = mentorLog.filter((m) => m.ts >= since && typeof m.score === 'number');
-    for (const m of graded) if (m.tag) count[m.tag] = (count[m.tag] || 0) + 1;
-    source = 'written';
-    total = graded.length;
-  }
-  const top = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
-  return top ? { label: top[0], n: top[1], total, source } : null;
-}
-
-// Weekly error report: the top error with the items that produced it, and the weakest theme
-// across all three tracks (practised this week if possible), each with a drill.
-export function weeklyReport({ partnerAttempts, mentorLog, reviews, fundamentals, accounting, partnerItems, chapterTitle }, now = Date.now()) {
-  const since = now - 7 * DAY_MS;
-  const top = weeklyTopError(partnerAttempts, mentorLog, now);
-  let error = null;
-  if (top) {
-    const idByPid = Object.fromEntries(partnerItems.map((p) => [p.pid, p.id]));
-    const ids =
-      top.source === 'partner'
-        ? partnerAttempts.filter((a) => a.ts >= since && (a.patterns || []).includes(top.label)).map((a) => idByPid[a.pid])
-        : mentorLog.filter((m) => m.ts >= since && m.tag === top.label).map((m) => m.qid);
-    error = { ...top, ids: [...new Set(ids.filter(Boolean))] };
-  }
-
-  const groups = [];
-  const add = (label, track, items, drill) => groups.push({ label, track, items, drill });
-  const byTopic = {};
-  for (const q of fundamentals) (byTopic[q.topic] ||= []).push(q);
-  for (const t of ALL_TOPICS) if (byTopic[t.id]) add(t.name, 'Fundamentals', byTopic[t.id], { mode: 'topic', topic: t.id });
-  const byChapter = {};
-  for (const q of accounting) (byChapter[q.chapter] ||= []).push(q);
-  for (const [n, items] of Object.entries(byChapter)) add(`Ch ${n} · ${chapterTitle(Number(n))}`, 'Accounting', items, { mode: 'accounting', topic: n });
-  const byTheme = {};
-  for (const q of partnerItems) (byTheme[q.theme] ||= []).push(q);
-  for (const [theme, items] of Object.entries(byTheme)) add(theme, 'Partner', items, { mode: 'review', ids: items.map((q) => q.id).join(',') });
-
-  const touched = (items, from) => items.some((q) => (reviews[q.id]?.history || []).some((h) => h.ts >= from));
-  const pool = groups.filter((g) => touched(g.items, since));
-  const candidates = (pool.length ? pool : groups.filter((g) => touched(g.items, 0))).map((g) => {
-    const tried = g.items.filter((q) => reviews[q.id]?.history?.length);
-    const hist = tried.flatMap((q) => reviews[q.id].history.slice(-5));
-    return { ...g, mastery: mean(tried.map((q) => questionMastery(reviews[q.id]))), accuracy: hist.filter((h) => h.correct).length / hist.length };
-  });
-  // Weakest = lowest recent accuracy, ties broken by mastery.
-  const weakest = candidates.sort((a, b) => a.accuracy - b.accuracy || a.mastery - b.mastery)[0] || null;
-  return { error, weakest, thisWeek: pool.length > 0 };
+// Counts only: what the weekly AI diagnosis is allowed to see (never question text).
+export function diagnosisSummary(stats, report, exams) {
+  return {
+    week: { answered: report.attempts, accuracy: report.accuracy === null ? null : Math.round(report.accuracy * 100) },
+    topics: stats.map((t) => ({
+      topic: t.label,
+      questions: t.count,
+      practised: t.tried,
+      accuracy_pct: t.accuracy === null ? null : Math.round(t.accuracy * 100),
+      mastery_pct: Math.round(t.mastery * 100),
+      wrong_this_week: report.rows.find((r) => r.topic === t.id)?.ids.length || 0,
+    })),
+    exam_scores_pct: exams.slice(-5).map((e) => e.scorePct),
+  };
 }
 
 export function pct(x) {

@@ -1,52 +1,41 @@
 import { useRef, useState } from 'react';
 import { useApp } from '../state.jsx';
-import { BackButton, ErrorNote, SectionLabel, Spinner } from '../components/ui.jsx';
+import { ErrorNote, ScreenHeader, SectionLabel, Spinner } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 import { MODEL, PRICE, askClaude, costUsd } from '../ai/client.js';
-import { COMPANY_FIELDS, DEFAULT_COMPANY, buildStatements, computeRatios, validateCompany } from '../finance/model.js';
-import { exportProgress, readJsonFile } from '../storage/backup.js';
+import { exportPack, exportProgress, readJsonFile } from '../storage/backup.js';
 
 export default function Settings() {
-  const app = useApp();
-  const { settings, updateSettings, customQuestions, deleteCustomQuestion } = app;
-  const [msg, setMsg] = useState('');
-  const fileRef = useRef(null);
-
-  async function onImport(e) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    try {
-      const data = await readJsonFile(file);
-      if (!window.confirm('Replace all progress on this device with the contents of this file?')) return;
-      await app.importData(data);
-      setMsg('Progress imported.');
-    } catch (err) {
-      setMsg(`Import failed: ${err.message}`);
-    }
-  }
-
-  async function onExport() {
-    try {
-      const how = await exportProgress(app);
-      setMsg(how === 'shared' ? 'Export shared.' : 'Export downloaded.');
-    } catch (err) {
-      if (err?.name !== 'AbortError') setMsg(`Export failed: ${err.message}`);
-    }
-  }
-
+  const { settings, updateSettings } = useApp();
   return (
-    <div className="screen tight">
-      <div className="row">
-        <BackButton />
-        <h1 className="title" style={{ fontSize: 26 }}>
-          Settings
-        </h1>
-      </div>
+    <div className="screen with-tabs">
+      <ScreenHeader eyebrow="Pack, exam, data and API" title="Settings" />
 
+      <PackSection />
+      <ExamSection />
+
+      <section className="card" aria-labelledby="timer-h">
+        <SectionLabel>
+          <span id="timer-h">Practice timer</span>
+        </SectionLabel>
+        <div className="field">
+          <label htmlFor="pt">Seconds per question in practice (0 = off)</label>
+          <input
+            id="pt"
+            className="input mono"
+            inputMode="numeric"
+            value={settings.practiceTimer}
+            onChange={(e) => updateSettings({ practiceTimer: Math.min(600, Number(e.target.value.replace(/\D/g, '')) || 0) })}
+          />
+          <div className="caption" style={{ fontSize: 12 }}>
+            The exam simulation uses its own overall time limit (above). Running out of time in practice counts as a wrong answer.
+          </div>
+        </div>
+      </section>
+
+      <ProgressDataSection />
       <ApiKeySection />
       <UsageSection />
-      <CompanyModeSection />
 
       <section className="card" aria-labelledby="look-h">
         <SectionLabel>
@@ -66,169 +55,195 @@ export default function Settings() {
           </span>
           <input type="checkbox" switch="" checked={!!settings.reduceMotion} onChange={(e) => updateSettings({ reduceMotion: e.target.checked })} />
         </label>
-        {settings.hintsSeen?.dictation && (
-          <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => updateSettings({ hintsSeen: {} })}>
-            Show tips again
-          </button>
-        )}
-      </section>
-
-      <section className="card" aria-labelledby="timer-h">
-        <SectionLabel>
-          <span id="timer-h">Mental-math timers (seconds)</span>
-        </SectionLabel>
-        <div className="grid-3">
-          {['easy', 'medium', 'hard'].map((d) => (
-            <div className="field" key={d}>
-              <label htmlFor={`t-${d}`} style={{ textTransform: 'capitalize' }}>
-                {d}
-              </label>
-              <input
-                id={`t-${d}`}
-                className="input mono"
-                inputMode="numeric"
-                value={settings.timers[d]}
-                onChange={(e) => {
-                  const v = Math.max(5, Math.min(600, Number(e.target.value.replace(/\D/g, '')) || 0));
-                  updateSettings({ timers: { ...settings.timers, [d]: v } });
-                }}
-              />
-            </div>
-          ))}
+        <div className="caption" style={{ fontSize: 12 }}>
+          Long-press an underlined term in a question or explanation for its definition and French term.
         </div>
       </section>
-
-      <section className="card" aria-labelledby="data-h">
-        <SectionLabel>
-          <span id="data-h">Your data</span>
-        </SectionLabel>
-        <p className="caption" style={{ lineHeight: 1.5 }}>
-          Progress is stored on this device only. Export it regularly (save it to iCloud Drive) and import it on a new phone.
-        </p>
-        <div className="grid-2">
-          <button className="btn" onClick={onExport}>
-            <Icon name="download" size={18} /> Export
-          </button>
-          <button className="btn" onClick={() => fileRef.current?.click()}>
-            <Icon name="upload" size={18} /> Import
-          </button>
-        </div>
-        <input ref={fileRef} type="file" accept="application/json,.json" className="sr-only" aria-label="Import progress file" onChange={onImport} />
-        {msg && (
-          <div className="caption" role="status">
-            {msg}
-          </div>
-        )}
-      </section>
-
-      <CompanyEditor />
-
-      {customQuestions.length > 0 && (
-        <section className="card" aria-labelledby="cq-h">
-          <SectionLabel>
-            <span id="cq-h">Saved AI questions ({customQuestions.length})</span>
-          </SectionLabel>
-          {customQuestions.map((q) => (
-            <div key={q.id} className="row" style={{ alignItems: 'flex-start' }}>
-              <div style={{ flex: 1, fontSize: 14, lineHeight: 1.4 }}>{q.prompt}</div>
-              <button className="icon-btn" aria-label="Delete question" onClick={() => deleteCustomQuestion(q.id)}>
-                <Icon name="trash" size={18} />
-              </button>
-            </div>
-          ))}
-        </section>
-      )}
 
       <div className="caption" style={{ textAlign: 'center', fontSize: 12 }}>
-        Consultant Gym · works offline except the mentor
+        UPDA Gym · works fully offline; the API is optional
       </div>
     </div>
   );
 }
 
-function CompanyEditor() {
-  const { settings, updateSettings } = useApp();
-  const [draft, setDraft] = useState(settings.company);
-  const [saved, setSaved] = useState('');
-  const numeric = { ...draft };
-  for (const f of COMPANY_FIELDS) numeric[f.key] = Number(draft[f.key]);
-  const valid = COMPANY_FIELDS.every((f) => Number.isFinite(numeric[f.key]));
-  const problems = valid ? validateCompany(numeric) : ['Every field needs a number.'];
-  const s = valid ? buildStatements(numeric) : null;
-  const r = s && problems.length === 0 ? computeRatios(s) : null;
-  const groups = [...new Set(COMPANY_FIELDS.map((f) => f.group))];
+function PackSection() {
+  const app = useApp();
+  const { packInfo, usingSample, allQuestions, settings, updateSettings } = app;
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+  const generated = allQuestions.filter((q) => q.generated).length;
+  const byStatus = allQuestions.reduce((m, q) => ((m[q.status] = (m[q.status] || 0) + 1), m), {});
 
-  function save() {
-    updateSettings({ company: numeric });
-    setSaved('Saved. The ratio tree now uses these figures.');
+  async function onImport(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      const data = await readJsonFile(file);
+      if (!usingSample && !window.confirm(`Replace the current pack (${packInfo.count} questions) with this file? Your progress is kept.`)) return;
+      const info = await app.importPack(data);
+      setMsg(`Imported ${info.count} questions from “${info.name}”. Your progress is kept.`);
+    } catch (err) {
+      setMsg(`Import failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onExport() {
+    try {
+      const how = await exportPack(app);
+      setMsg(how === 'shared' ? 'Question pack shared.' : 'Question pack downloaded.');
+    } catch (err) {
+      if (err?.name !== 'AbortError') setMsg(`Export failed: ${err.message}`);
+    }
   }
 
   return (
-    <section className="card" aria-labelledby="co-h">
+    <section className="card" aria-labelledby="pack-h">
       <SectionLabel>
-        <span id="co-h">Sample company (ratio tree)</span>
+        <span id="pack-h">Question pack</span>
       </SectionLabel>
-      <div className="grid-2">
-        <div className="field">
-          <label htmlFor="co-name">Name</label>
-          <input id="co-name" className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-        </div>
-        <div className="field">
-          <label htmlFor="co-cur">Currency</label>
-          <input id="co-cur" className="input" value={draft.currency} onChange={(e) => setDraft({ ...draft, currency: e.target.value })} />
-        </div>
+      <div className="kv">
+        <span className="caption">Loaded</span>
+        <span style={{ fontSize: 14, fontWeight: 500, textAlign: 'right' }}>{usingSample ? '5 sample questions' : `${packInfo.name} · ${packInfo.count}`}</span>
+        {!usingSample && (
+          <>
+            <span className="caption">Answers</span>
+            <span className="mono" style={{ fontSize: 13, textAlign: 'right' }}>
+              {byStatus.verified || 0} verified · {byStatus.disputed || 0} disputed · {byStatus.unverified || 0} unverified
+            </span>
+          </>
+        )}
+        {packInfo?.importedAt && (
+          <>
+            <span className="caption">Imported</span>
+            <span className="mono" style={{ fontSize: 13 }}>
+              {new Date(packInfo.importedAt).toLocaleDateString('en-GB')}
+            </span>
+          </>
+        )}
       </div>
-      {groups.map((g) => (
-        <div key={g} className="stack">
-          <div className="h3" style={{ fontSize: 14 }}>
-            {g}
-          </div>
-          {COMPANY_FIELDS.filter((f) => f.group === g).map((f) => (
-            <div key={f.key} className="kv">
-              <label htmlFor={`co-${f.key}`} style={{ fontSize: 14, color: 'var(--text-2)' }}>
-                {f.label}
-              </label>
-              <input
-                id={`co-${f.key}`}
-                className="input mono"
-                style={{ width: 110, textAlign: 'right' }}
-                inputMode="decimal"
-                value={draft[f.key]}
-                onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
-              />
-            </div>
-          ))}
-        </div>
-      ))}
-      {s && (
-        <div className="inner mono" style={{ fontSize: 13, lineHeight: 1.7 }}>
-          Equity (balancing item): {s.equity.toFixed(1)}
-          <br />
-          EBIT {s.ebit.toFixed(1)} · Net income {s.netIncome.toFixed(1)}
-          {r && (
-            <>
-              <br />
-              ROE {(r.roe * 100).toFixed(1)}% · ROIC {(r.roic * 100).toFixed(1)}% · DSO {r.dso.toFixed(0)} d
-            </>
-          )}
-        </div>
-      )}
-      {problems.length > 0 && (
-        <div className="notice error" role="alert">
-          {problems.join(' ')}
-        </div>
-      )}
       <div className="grid-2">
-        <button className="btn" onClick={() => setDraft(DEFAULT_COMPANY)}>
-          <Icon name="refresh" size={18} /> Defaults
+        <button className="btn primary" disabled={busy} onClick={() => fileRef.current?.click()}>
+          <Icon name="upload" size={18} /> Import pack
         </button>
-        <button className="btn primary" disabled={problems.length > 0} onClick={save}>
-          Save company
+        <button className="btn" disabled={usingSample} onClick={onExport}>
+          <Icon name="download" size={18} /> Export pack
         </button>
       </div>
-      {saved && (
+      <input ref={fileRef} type="file" accept="application/json,.json" className="sr-only" aria-label="Import question pack file" onChange={onImport} />
+      {busy && <Spinner label="Importing…" />}
+      {msg && (
         <div className="caption" role="status">
-          {saved}
+          {msg}
+        </div>
+      )}
+      {generated > 0 && (
+        <label className="toggle" style={{ fontSize: 15 }}>
+          <span>
+            Include generated practice questions <span className="caption">· {generated}, not from past papers</span>
+          </span>
+          <input type="checkbox" switch="" checked={!!settings.includeGenerated} onChange={(e) => updateSettings({ includeGenerated: e.target.checked })} />
+        </label>
+      )}
+      <div className="caption" style={{ fontSize: 12, lineHeight: 1.5 }}>
+        Send upda-bank.json to your iPhone (AirDrop, or save it to iCloud Drive), then tap Import pack and pick it in Files. The questions are stored on this
+        phone only; they are not part of the public app.
+      </div>
+    </section>
+  );
+}
+
+function ExamSection() {
+  const { settings, updateSettings } = useApp();
+  const exam = settings.exam;
+  const setExam = (patch) => updateSettings({ exam: { ...exam, ...patch } });
+  const num = (v, min, max) => Math.max(min, Math.min(max, Number(String(v).replace(/\D/g, '')) || min));
+  return (
+    <section className="card" aria-labelledby="exam-h">
+      <SectionLabel>
+        <span id="exam-h">Exam</span>
+      </SectionLabel>
+      <div className="field">
+        <label htmlFor="exam-date">Exam date</label>
+        <input id="exam-date" className="input" type="date" value={settings.examDate || ''} onChange={(e) => updateSettings({ examDate: e.target.value })} />
+      </div>
+      <div className="grid-3">
+        <div className="field">
+          <label htmlFor="ex-q">Questions</label>
+          <input id="ex-q" className="input mono" inputMode="numeric" value={exam.questions} onChange={(e) => setExam({ questions: num(e.target.value, 1, 300) })} />
+        </div>
+        <div className="field">
+          <label htmlFor="ex-m">Minutes</label>
+          <input id="ex-m" className="input mono" inputMode="numeric" value={exam.minutes} onChange={(e) => setExam({ minutes: num(e.target.value, 1, 600) })} />
+        </div>
+        <div className="field">
+          <label htmlFor="ex-p">Pass mark %</label>
+          <input id="ex-p" className="input mono" inputMode="numeric" value={exam.passMark} onChange={(e) => setExam({ passMark: num(e.target.value, 1, 100) })} />
+        </div>
+      </div>
+      <div className="caption" style={{ fontSize: 12, lineHeight: 1.5 }}>
+        Your past papers don’t state the format, so these are placeholders. Set them to the real UPDA exam values.
+      </div>
+    </section>
+  );
+}
+
+function ProgressDataSection() {
+  const app = useApp();
+  const [msg, setMsg] = useState('');
+  const fileRef = useRef(null);
+
+  async function onImport(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const data = await readJsonFile(file);
+      if (!window.confirm('Replace all progress on this device with the contents of this file? The question pack is not affected.')) return;
+      await app.importProgressData(data);
+      setMsg('Progress imported.');
+    } catch (err) {
+      setMsg(`Import failed: ${err.message}`);
+    }
+  }
+
+  async function onExport() {
+    try {
+      const how = await exportProgress(app);
+      setMsg(how === 'shared' ? 'Progress shared.' : 'Progress downloaded.');
+    } catch (err) {
+      if (err?.name !== 'AbortError') setMsg(`Export failed: ${err.message}`);
+    }
+  }
+
+  return (
+    <section className="card" aria-labelledby="data-h">
+      <SectionLabel>
+        <span id="data-h">Your progress</span>
+      </SectionLabel>
+      <p className="caption" style={{ lineHeight: 1.5 }}>
+        Progress (answers, spaced repetition, exam scores, settings) is stored on this device only. Export it regularly to iCloud Drive. It contains no questions and
+        no API key.
+      </p>
+      <div className="grid-2">
+        <button className="btn" onClick={onExport}>
+          <Icon name="download" size={18} /> Export progress
+        </button>
+        <button className="btn" onClick={() => fileRef.current?.click()}>
+          <Icon name="upload" size={18} /> Import progress
+        </button>
+      </div>
+      <input ref={fileRef} type="file" accept="application/json,.json" className="sr-only" aria-label="Import progress file" onChange={onImport} />
+      {app.meta.lastExport && <div className="caption">Last export: {new Date(app.meta.lastExport).toLocaleDateString('en-GB')}</div>}
+      {msg && (
+        <div className="caption" role="status">
+          {msg}
         </div>
       )}
     </section>
@@ -280,7 +295,7 @@ function ApiKeySection() {
   return (
     <section className="card" aria-labelledby="ai-h">
       <SectionLabel>
-        <span id="ai-h">Claude API</span>
+        <span id="ai-h">Claude API (optional)</span>
       </SectionLabel>
       <div className="kv">
         <span className="caption">Model</span>
@@ -324,10 +339,6 @@ function ApiKeySection() {
           onChange={(e) => setWsDraft(e.target.value)}
           onBlur={() => updateSettings({ workspaceId: wsDraft.trim() })}
         />
-        <div className="caption" style={{ fontSize: 12, lineHeight: 1.5 }}>
-          Some newer keys are linked to your user account and must name a workspace. Find the ID on the workspace page in the Anthropic console (Settings →
-          Workspaces). Leave empty for a normal workspace key.
-        </div>
       </div>
       <div className="grid-2">
         <button className="btn" onClick={test} disabled={!apiKey || testing}>
@@ -352,8 +363,9 @@ function ApiKeySection() {
       )}
       <ErrorNote error={error} />
       <div className="caption" style={{ fontSize: 12, lineHeight: 1.5 }}>
-        Used only to grade written answers and for the weekly diagnosis. Everything else is graded on the phone. The key is encrypted with a device key that
-        cannot be exported, sent only to api.anthropic.com, never logged and never included in exports. Set a monthly spend limit on it in the Anthropic console.
+        Used only for “Explain more”, “Answer wrong?” (re-checks that one question) and the weekly diagnosis (topic counts only, never the questions). Every answer
+        is graded on the phone. The key is encrypted with a device key that cannot be exported, sent only to api.anthropic.com, never logged and never included in
+        exports. Set a monthly spend limit on it in the Anthropic console.
       </div>
     </section>
   );
@@ -384,32 +396,6 @@ function UsageSection() {
       {row('All time on this device', usage.total)}
       <div className="caption" style={{ fontSize: 12 }}>
         Estimate at ${PRICE.input}/M input and ${PRICE.output}/M output tokens. A session starts when you open the app.
-      </div>
-    </section>
-  );
-}
-
-function CompanyModeSection() {
-  const { settings, updateSettings } = useApp();
-  const [v, setV] = useState(settings.companyMode || '');
-  return (
-    <section className="card" aria-labelledby="cm-h">
-      <SectionLabel>
-        <span id="cm-h">Partner analysis</span>
-      </SectionLabel>
-      <div className="field">
-        <label htmlFor="company-mode">Company being analysed</label>
-        <input
-          id="company-mode"
-          className="input"
-          value={v}
-          placeholder="Almarai vs SADAFCO · FY2025"
-          onChange={(e) => setV(e.target.value)}
-          onBlur={() => updateSettings({ companyMode: v.trim() || 'Almarai vs SADAFCO · FY2025' })}
-        />
-        <div className="caption" style={{ fontSize: 12, lineHeight: 1.5 }}>
-          Shown on every partner question. Name two companies with “vs” so the checks can spot answers that cover only one.
-        </div>
       </div>
     </section>
   );
