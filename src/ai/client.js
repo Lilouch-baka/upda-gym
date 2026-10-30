@@ -1,0 +1,107 @@
+import Anthropic from '@anthropic-ai/sdk';
+
+export const MODEL = 'claude-sonnet-5-5';
+// USD per million tokens.
+export const PRICE = { input: 2, output: 10 };
+
+export function costUsd(inputTokens, outputTokens) {
+  return (inputTokens * PRICE.input + outputTokens * PRICE.output) / 1e6;
+}
+
+const WORKSPACE_HELP =
+  'This key needs a workspace. Either fill in "Workspace ID" in Settings (from your workspace page in the Anthropic console, it starts with wrkspc_), or create a workspace API key there and use that instead';
+
+export class MentorError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+}
+
+function mapError(e) {
+  if (e instanceof MentorError) return e;
+  if (e instanceof Anthropic.AuthenticationError) {
+    const msg = e.error?.error?.message || '';
+    if (/workspace/i.test(msg)) return new MentorError('invalid_key', WORKSPACE_HELP + ` (Anthropic said: ${msg})`);
+    return new MentorError('invalid_key', `Your API key was rejected${msg ? ` (${msg})` : ''}. Check it in Settings; it should start with sk-ant-api.`);
+  }
+  if (e instanceof Anthropic.PermissionDeniedError) {
+    const msg = e.error?.error?.message || '';
+    if (/workspace/i.test(msg)) return new MentorError('permission', WORKSPACE_HELP + ` (Anthropic said: ${msg})`);
+    return new MentorError('permission', `Anthropic refused the request${msg ? `: ${msg}` : '.'}`);
+  }
+  if (e instanceof Anthropic.RateLimitError) {
+    return new MentorError('rate_limit', 'Rate limit reached. Wait a minute and try again.');
+  }
+  if (e instanceof Anthropic.BadRequestError) {
+    const msg = e.error?.error?.message || e.message || '';
+    if (/credit|balance|billing|spend|limit/i.test(msg)) {
+      return new MentorError(
+        'billing',
+        `Anthropic refused this on billing grounds: "${msg}". Check that your credits are in the same organisation as this key, and that the key's workspace has no spend limit blocking it (Anthropic console → Settings → Workspaces → Limits).`,
+      );
+    }
+    if (/workspace/i.test(msg)) return new MentorError('invalid_key', WORKSPACE_HELP + ` (Anthropic said: ${msg})`);
+    return new MentorError('bad_request', `The request was rejected: ${msg}`);
+  }
+  if (e instanceof Anthropic.APIConnectionError) {
+    return new MentorError('offline', 'Could not reach the Anthropic API. Check your connection.');
+  }
+  if (e instanceof Anthropic.APIError) {
+    if (e.status === 529 || e.status >= 500) return new MentorError('overloaded', 'The API is busy right now. Try again in a moment.');
+    const msg = e.error?.error?.message || '';
+    return new MentorError('api', `API error ${e.status ?? ''}${msg ? `: ${msg}` : ''}`);
+  }
+  return new MentorError('unknown', 'Something went wrong with the API call.');
+}
+
+/**
+ * One small Messages API call from the browser.
+ * Thinking is switched off (between_tools) and output is capped, so calls stay cheap.
+ * With `schema`, the reply is constrained to that JSON schema and returned parsed.
+ * Returns { result, usage: { input, output } }.
+ */
+export async function askClaude({ apiKey, workspaceId, system, content, schema, maxTokens = 300 }) {
+  if (!apiKey) throw new MentorError('no_key', 'No API key saved. Add one in Settings, or self-grade.');
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new MentorError('offline', 'You are offline. Self-grade this one; everything else works offline.');
+  }
+
+  // Identity-linked keys must name the workspace each request runs in.
+  const defaultHeaders = workspaceId ? { 'anthropic-workspace-id': workspaceId.trim() } : undefined;
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 1, timeout: 30000, logLevel: 'off', defaultHeaders });
+  const output_config = { effort: 'low' };
+  if (schema) output_config.format = { type: 'json_schema', schema };
+
+  let res;
+  try {
+    res = await client.messages.create({
+      model: MODEL,
+      max_tokens: maxTokens,
+      thinking: { type: 'between_tools' },
+      output_config,
+      system,
+      messages: [{ role: 'user', content }],
+    });
+  } catch (e) {
+    throw mapError(e);
+  }
+
+  const usage = {
+    input: (res.usage?.input_tokens || 0) + (res.usage?.cache_creation_input_tokens || 0) + (res.usage?.cache_read_input_tokens || 0),
+    output: res.usage?.output_tokens || 0,
+  };
+  if (res.stop_reason === 'refusal') throw Object.assign(new MentorError('refusal', 'The model declined this request.'), { usage });
+
+  const text = res.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+  if (!schema) return { result: text, usage };
+  try {
+    return { result: JSON.parse(text), usage };
+  } catch {
+    throw Object.assign(new MentorError('parse', 'The reply was cut off or malformed.'), { usage });
+  }
+}

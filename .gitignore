@@ -1,0 +1,11 @@
+node_modules
+dist
+.DS_Store
+*.log
+.claude
+
+# Private exam content: never commit the question bank or source papers
+upda-bank.json
+*.bank.json
+papers/
+private/
