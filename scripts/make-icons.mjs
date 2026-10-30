@@ -1,4 +1,4 @@
-// Generates the PWA icons (navy square with three white rising bars) as PNGs, no dependencies.
+// Generates the PWA icons (navy square with a white classical temple) as PNGs, no dependencies.
 // Run with: npm run icons
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
@@ -58,19 +58,24 @@ function png(size, art) {
   ]);
 }
 
-// Art in unit coordinates, kept inside the central 60% so it survives maskable cropping.
+// Art in unit coordinates, kept inside the central 60% so it survives maskable cropping:
+// a classical temple (pediment, three columns, base) with a green baseline.
 function art(scale) {
   const s = scale; // 1 = full size, smaller = more padding
-  const bars = [
-    { x0: 0.5 - 0.27 * s, x1: 0.5 - 0.13 * s, top: 0.5 + 0.05 * s },
-    { x0: 0.5 - 0.07 * s, x1: 0.5 + 0.07 * s, top: 0.5 - 0.1 * s },
-    { x0: 0.5 + 0.13 * s, x1: 0.5 + 0.27 * s, top: 0.5 - 0.25 * s },
-  ];
-  const bottom = 0.5 + 0.25 * s;
+  const c = (v) => 0.5 + v * s;
+  const columns = [-0.19, 0, 0.19].map((cx) => ({ x0: c(cx - 0.045), x1: c(cx + 0.045) }));
   return (x, y) => {
-    for (const b of bars) if (x >= b.x0 && x <= b.x1 && y >= b.top && y <= bottom) return WHITE;
-    // green baseline
-    if (y >= bottom + 0.03 * s && y <= bottom + 0.06 * s && x >= 0.5 - 0.3 * s && x <= 0.5 + 0.3 * s) return GREEN;
+    // pediment: triangle from the apex down to the entablature
+    const apex = c(-0.28);
+    const eave = c(-0.13);
+    if (y >= apex && y <= eave) {
+      const half = ((y - apex) / (eave - apex)) * 0.31 * s;
+      if (Math.abs(x - 0.5) <= half) return WHITE;
+    }
+    if (y >= c(-0.11) && y <= c(-0.06) && x >= c(-0.28) && x <= c(0.28)) return WHITE; // entablature
+    for (const k of columns) if (x >= k.x0 && x <= k.x1 && y >= c(-0.04) && y <= c(0.17)) return WHITE;
+    if (y >= c(0.19) && y <= c(0.24) && x >= c(-0.3) && x <= c(0.3)) return WHITE; // base
+    if (y >= c(0.27) && y <= c(0.3) && x >= c(-0.3) && x <= c(0.3)) return GREEN; // baseline
     return NAVY;
   };
 }
@@ -81,6 +86,6 @@ writeFileSync(join(out, 'icon-512-maskable.png'), png(512, art(0.8)));
 writeFileSync(join(out, 'apple-touch-icon.png'), png(180, art(1)));
 writeFileSync(
   join(out, 'favicon.svg'),
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#0B2D5C"/><rect x="15" y="35" width="9" height="16" fill="#fff"/><rect x="28" y="26" width="9" height="25" fill="#fff"/><rect x="41" y="16" width="9" height="35" fill="#fff"/><rect x="13" y="53" width="38" height="2" fill="#5CC690"/></svg>`,
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#0B2D5C"/><path d="M32 14 52 24H12z" fill="#fff"/><rect x="14" y="25" width="36" height="3" fill="#fff"/><rect x="17" y="30" width="6" height="14" fill="#fff"/><rect x="29" y="30" width="6" height="14" fill="#fff"/><rect x="41" y="30" width="6" height="14" fill="#fff"/><rect x="13" y="45" width="38" height="3" fill="#fff"/><rect x="13" y="50" width="38" height="2" fill="#5CC690"/></svg>`,
 );
 console.log('Icons written to public/');

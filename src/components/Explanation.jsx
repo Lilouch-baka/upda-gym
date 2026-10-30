@@ -42,7 +42,8 @@ export function sourceLabel(q) {
   if (q.generated) return q.source?.paper === 'generated' ? 'Sample / generated question' : 'Generated question';
   const s = q.source || {};
   const nums = (s.numbers || []).map((n) => `Q${n}`).join(', ');
-  return [s.paper, nums, s.page ? `p.${s.page}` : null, s.year].filter(Boolean).join(' · ');
+  const also = (s.also || []).map((a) => [a.paper, a.q ? `Q${a.q}` : null, a.year].filter(Boolean).join(' '));
+  return [[s.paper, nums, s.page ? `p.${s.page}` : null, s.year].filter(Boolean).join(' · '), ...also].join('; also ');
 }
 
 // Everything shown right under the answer: why it's right, why the others are wrong,

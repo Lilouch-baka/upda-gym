@@ -14,6 +14,12 @@
 //   ref, tip           reference (or "General engineering principle") and exam tip
 //   check              optional JS formula whose value must match the correct option
 //   status, note       optional override (verified | disputed | unverified) and reviewer note
+// Questions from a later paper (see README, "Adding a new past paper"):
+//   paper, year        source paper name and year; default: the first ARCH UPDA recall collection
+//   id                 explicit id, required for a new paper's questions (e.g. "ARCH-STR-P2-014")
+//   also               the same question seen in other papers: [{ "paper": "…", "q": "12", "year": 2025 }]
+//                      each entry adds one to "seen in N papers"
+//   generated          true for extra practice questions not taken from a paper (off by default in the app)
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,8 +47,9 @@ for (const file of readdirSync(srcDir).filter((f) => f.endsWith('.json')).sort()
     const paperKey = r.k == null ? null : r.k - 1;
     const status = r.status || (paperKey === null ? 'unverified' : paperKey === answer ? 'verified' : 'disputed');
     const isTF = r.o.length === 2 && r.o.every((o) => /^(true|false)$/i.test(o));
+    const also = Array.isArray(r.also) ? r.also : [];
     questions.push({
-      id: `ARCH-${data.code}-${numbers[0].padStart(3, '0')}`,
+      id: r.id || `ARCH-${data.code}-${numbers[0].padStart(3, '0')}`,
       discipline: 'architecture',
       topic: data.topic,
       subtopic: r.sub,
@@ -53,13 +60,13 @@ for (const file of readdirSync(srcDir).filter((f) => f.endsWith('.json')).sort()
       answer: { index: answer },
       ...(r.check ? { check: r.check } : {}),
       explanation: { steps: r.s, why_wrong: r.w, reference: r.ref, tip: r.tip },
-      source: { paper: PAPER, numbers, page: r.p, year: null },
-      seen: numbers.length,
+      source: { paper: r.generated ? 'generated' : r.paper || PAPER, numbers, page: r.p ?? null, year: r.year ?? null, ...(also.length ? { also } : {}) },
+      seen: numbers.length + also.length,
       priority: !!r.y,
       status,
       paper_key: paperKey,
       ...(r.note ? { note: r.note } : {}),
-      generated: false,
+      generated: !!r.generated,
     });
   }
 }
