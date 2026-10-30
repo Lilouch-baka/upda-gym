@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "npm run check && vite build",
     "preview": "vite preview",
-    "check": "node scripts/validate-questions.mjs && node scripts/validate-accounting.mjs",
-    "icons": "node scripts/make-icons.mjs"
+    "check": "node scripts/check-bank.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "bank": "node scripts/build-bank.mjs && node scripts/check-bank.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",

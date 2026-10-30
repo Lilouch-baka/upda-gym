@@ -1,0 +1,86 @@
+{
+  "format": "upda-gym-pack",
+  "version": 1,
+  "name": "Sample questions (not from past papers)",
+  "discipline": "architecture",
+  "sample": true,
+  "topics": [
+    { "id": "theory", "label": "Theory of Architecture" },
+    { "id": "structures", "label": "Structural Systems" },
+    { "id": "planning", "label": "Planning & Urban Design" },
+    { "id": "construction", "label": "Building Construction & Dimensions" }
+  ],
+  "questions": [
+    {
+      "id": "SAMPLE-001", "discipline": "architecture", "topic": "theory", "subtopic": "Ordering principles", "difficulty": "easy", "type": "mcq",
+      "prompt": "In Ching's ordering principles, a line, plane or volume that organises a random pattern of elements by its continuity and regularity is a:",
+      "options": ["Datum", "Hierarchy", "Rhythm", "Transformation"],
+      "answer": { "index": 0 },
+      "explanation": {
+        "steps": ["A datum is a reference line, plane or volume that gathers and organises other elements through its continuity and regularity."],
+        "why_wrong": [null, "Hierarchy articulates importance through size, shape or placement.", "Rhythm is patterned repetition.", "Transformation is changing an archetype while keeping its identity."],
+        "reference": "Ching, Architecture: Form, Space and Order (Ordering Principles)",
+        "tip": "Datum = the organising reference that everything else relates to."
+      },
+      "source": { "paper": "generated", "numbers": ["S1"], "page": null, "year": null },
+      "seen": 1, "priority": false, "status": "verified", "paper_key": 0, "generated": true
+    },
+    {
+      "id": "SAMPLE-002", "discipline": "architecture", "topic": "structures", "subtopic": "Beams", "difficulty": "medium", "type": "numeric",
+      "prompt": "A simply supported beam spans 6 m and carries a uniformly distributed load of 10 kN/m. What is the maximum bending moment (kN·m)?",
+      "answer": { "value": 45, "unit": "kN·m", "tolerance": 0.5 },
+      "check": "10 * 6 * 6 / 8",
+      "explanation": {
+        "steps": ["For a simply supported beam with a UDL: M_max = wL² / 8, at mid-span.", "M = 10 kN/m × (6 m)² / 8 = 10 × 36 / 8", "M = 45 kN·m"],
+        "why_wrong": [],
+        "reference": "General engineering principle (beam theory)",
+        "tip": "Learn the big three: wL²/8 (simple UDL), PL/4 (simple point load at mid-span), wL²/2 (cantilever UDL)."
+      },
+      "source": { "paper": "generated", "numbers": ["S2"], "page": null, "year": null },
+      "seen": 1, "priority": false, "status": "verified", "paper_key": null, "generated": true
+    },
+    {
+      "id": "SAMPLE-003", "discipline": "architecture", "topic": "planning", "subtopic": "Development controls", "difficulty": "easy", "type": "numeric",
+      "prompt": "A 1,200 m² plot has a permitted floor area ratio (FAR) of 2.5. What is the maximum gross floor area (m²)?",
+      "answer": { "value": 3000, "unit": "m²", "tolerance": 0 },
+      "check": "1200 * 2.5",
+      "explanation": {
+        "steps": ["FAR = gross floor area ÷ plot area", "GFA = FAR × plot area = 2.5 × 1,200 m²", "GFA = 3,000 m²"],
+        "why_wrong": [],
+        "reference": "General planning principle (FAR / plot ratio)",
+        "tip": "Don't confuse FAR (total floor area) with site coverage (footprint only)."
+      },
+      "source": { "paper": "generated", "numbers": ["S3"], "page": null, "year": null },
+      "seen": 1, "priority": false, "status": "verified", "paper_key": null, "generated": true
+    },
+    {
+      "id": "SAMPLE-004", "discipline": "architecture", "topic": "construction", "subtopic": "Acoustics", "difficulty": "easy", "type": "truefalse",
+      "prompt": "Soft, porous materials such as mineral wool are the best choice for blocking sound transmission between two rooms.",
+      "options": ["True", "False"],
+      "answer": { "index": 1 },
+      "explanation": {
+        "steps": ["Porous materials ABSORB sound and reduce echo within a room.", "Blocking transmission between rooms needs mass and airtightness (mass law: about +6 dB per doubling of mass)."],
+        "why_wrong": ["Confuses absorption with insulation.", null],
+        "reference": "General building acoustics (mass law)",
+        "tip": "Absorption = inside the room; insulation = between rooms."
+      },
+      "source": { "paper": "generated", "numbers": ["S4"], "page": null, "year": null },
+      "seen": 1, "priority": false, "status": "verified", "paper_key": 1, "generated": true
+    },
+    {
+      "id": "SAMPLE-005", "discipline": "architecture", "topic": "construction", "subtopic": "Stairs", "difficulty": "medium", "type": "mcq",
+      "prompt": "Using Blondel's rule (2R + T ≈ 63 cm), what tread suits a 17 cm riser?",
+      "options": ["25 cm", "29 cm", "33 cm", "35 cm"],
+      "answer": { "index": 1 },
+      "check": "63 - 2 * 17",
+      "explanation": {
+        "steps": ["T = 63 − 2R", "T = 63 − 2 × 17 = 63 − 34", "T = 29 cm"],
+        "why_wrong": ["Gives 2R + T = 59 cm: too steep.", null, "Gives 67 cm: too long a stride.", "Gives 69 cm: too long a stride."],
+        "reference": "Blondel's formula (Neufert, Architects' Data)",
+        "tip": "Steeper riser → shorter tread."
+      },
+      "source": { "paper": "generated", "numbers": ["S5"], "page": null, "year": null },
+      "seen": 1, "priority": false, "status": "verified", "paper_key": 1, "generated": true
+    }
+  ]
+}
