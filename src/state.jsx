@@ -11,8 +11,9 @@ export const DEFAULT_SETTINGS = {
   reduceMotion: false,
   hintsSeen: {},
   examDate: '2026-11-15',
-  // Exam simulation format. Placeholders until confirmed: change them in Settings.
-  exam: { questions: 50, minutes: 90, passMark: 60 },
+  // Exam simulation format, as reported by a prep site for the Architecture exam (25 or 27 MCQs,
+  // 60 minutes, 13/25 to pass). Not confirmed by the Ministry: change it in Settings if it differs.
+  exam: { questions: 25, minutes: 60, passMark: 52 },
   // Optional per-question countdown in practice (0 = off).
   practiceTimer: 0,
   includeGenerated: false,
@@ -86,6 +87,9 @@ export function AppProvider({ children }) {
     setDiagnosis(dg || null);
     const merged = { ...DEFAULT_SETTINGS, ...(s || {}) };
     merged.exam = { ...DEFAULT_SETTINGS.exam, ...(s?.exam || {}) };
+    // The first version's untouched placeholder (50 Q / 90 min / 60%) moves to the reported format.
+    const e = merged.exam;
+    if (e.questions === 50 && e.minutes === 90 && e.passMark === 60) merged.exam = { ...DEFAULT_SETTINGS.exam };
     setSettings(merged);
     applyTheme(merged.theme);
     applyMotion(merged.reduceMotion);

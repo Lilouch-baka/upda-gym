@@ -188,7 +188,7 @@ function ExamSection() {
         </div>
       </div>
       <div className="caption" style={{ fontSize: 12, lineHeight: 1.5 }}>
-        Your past papers don’t state the format, so these are placeholders. Set them to the real UPDA exam values.
+        Defaults follow the reported Architecture format: 25 multiple-choice questions in 60 minutes, 13 correct to pass (52%). Some sittings have 27 questions (14 to pass, set 51%). Not confirmed by the Ministry: check when you register.
       </div>
     </section>
   );

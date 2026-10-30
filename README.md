@@ -39,7 +39,7 @@ Settings also has **Export pack** (saves the question pack back to Files) and, s
 
 ## 3. Set your exam
 
-**Settings → Exam:** exam date, number of questions, time limit and pass mark. Your papers don't state the format, so the defaults (50 questions, 90 minutes, 60%) are placeholders: set the real values.
+**Settings → Exam:** exam date, number of questions, time limit and pass mark. The defaults follow the format reported for the Architecture exam by [OpenExamPrep](https://open-exam-prep.com/practice/qa-upda-architecture): **25 multiple-choice questions in 60 minutes, 13 correct to pass (52%)**; some sittings have 27 questions (14 to pass: set 27 questions and 51%). This is not confirmed by the Ministry of Municipality, so check it when you register and adjust it if needed.
 
 **Settings → Practice timer:** optional seconds per question in practice (0 = off).
 
