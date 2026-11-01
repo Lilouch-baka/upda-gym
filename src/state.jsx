@@ -123,7 +123,7 @@ export function AppProvider({ children }) {
     const declared = [...(bankInfo?.topics || []), ...samplePack.topics];
     const used = [...new Set(allQuestions.map((q) => q.topic))];
     const label = Object.fromEntries(declared.map((t) => [t.id, t.label]));
-    const order = declared.map((t) => t.id).filter((id) => used.includes(id));
+    const order = [...new Set(declared.map((t) => t.id))].filter((id) => used.includes(id));
     return [...order, ...used.filter((id) => !order.includes(id))].map((id) => ({ id, label: label[id] || id }));
   }, [bankInfo, allQuestions]);
 

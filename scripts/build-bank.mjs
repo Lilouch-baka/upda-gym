@@ -40,10 +40,19 @@ if (!existsSync(srcDir)) {
 const topics = [];
 const questions = [];
 
-for (const file of readdirSync(srcDir).filter((f) => f.endsWith('.json')).sort()) {
-  const data = JSON.parse(readFileSync(join(srcDir, file), 'utf8'));
+// A file without its own "topic" (a whole paper, see private/archi1/merge.py) tags each question
+// with "t", the code of a topic file.
+const files = readdirSync(srcDir).filter((f) => f.endsWith('.json')).sort().map((f) => JSON.parse(readFileSync(join(srcDir, f), 'utf8')));
+const byCode = {};
+for (const data of files.filter((d) => d.topic)) {
   topics.push({ id: data.topic, label: data.label });
-  for (const r of data.questions) {
+  byCode[data.code] = data;
+}
+
+for (const file of files) {
+  for (const r of file.questions) {
+    const data = file.topic ? file : byCode[r.t];
+    if (!data) throw new Error(`Unknown topic code "${r.t}" in ${r.id || r.src}`);
     const numbers = String(r.src).split('/').map((s) => s.trim()).filter(Boolean);
     const answer = r.a - 1;
     const paperKey = r.k == null ? null : r.k - 1;

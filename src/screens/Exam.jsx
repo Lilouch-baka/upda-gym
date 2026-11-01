@@ -274,7 +274,7 @@ function ExamResult({ exam, fresh }) {
         </div>
         <div className="chips">
           <div className="tag">{topicLabel(q.topic)}</div>
-          {q.seen > 1 && <div className="tag freq">seen in {q.seen} papers</div>}
+          {q.seen > 1 && <div className="tag freq">seen {q.seen} times</div>}
           <StatusTag q={q} />
         </div>
         <QuestionCard q={q} given={r.given} revealed />
