@@ -1,6 +1,6 @@
 # UPDA Gym
 
-An offline iPhone study app for the Qatar UPDA engineer qualification exam (Architecture). All 193 questions from your past papers (with answers and explanations) are **built into the app**: open it and start. This repository and the website are public, so anyone with the link can see the questions.
+An offline iPhone study app for the Qatar UPDA engineer qualification exam (Architecture). 435 questions from your past papers (with answers and explanations) are **built into the app**: 193 from the ARCH UPDA recall collection and 242 from ARCHI 1 (63 practice sets; so far the questions that appear in more than one set): open it and start. This repository and the website are public, so anyone with the link can see the questions.
 
 **Live app:** <https://lilouch-baka.github.io/upda-gym/>
 
@@ -52,6 +52,7 @@ All past-paper questions are built in; there is nothing to import. Updating the 
 | `private/bank-src/*.json` | The questions, one file per topic, in the authoring format (edit these) | No (git-ignored) |
 | `src/data/bank.json` | The built bank, shipped inside the public app | **Yes (public)** |
 | `upda-bank.json` | The same bank as a file you can import on one device | No (git-ignored) |
+| `private/archi1/` | ARCHI 1: the paper's questions with duplicates merged (`groups.json`), my worked answers (`answers-*.json`) and `merge.py`, which writes `private/bank-src/20-archi1.json` | No (git-ignored) |
 | `private/DISPUTED.md` | Disputed and unverified questions with reasoning | No (git-ignored) |
 | `papers/` | Put source papers here (PDF, photos, Word) | No (git-ignored) |
 | `src/data/sample-pack.json` | 5 original sample questions (tagged generated, off by default) | Yes |
