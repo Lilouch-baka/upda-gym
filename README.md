@@ -1,6 +1,6 @@
 # UPDA Gym
 
-An offline iPhone study app for the Qatar UPDA engineer qualification exam (Architecture). 572 questions from your past papers (with answers and explanations) are **built into the app**: 193 from the ARCH UPDA recall collection and 379 from ARCHI 1 (63 practice sets; so far every question that appears in more than one set, plus sets 1–10): open it and start. This repository and the website are public, so anyone with the link can see the questions.
+An offline iPhone study app for the Qatar UPDA engineer qualification exam (Architecture). 710 questions from your past papers (with answers and explanations) are **built into the app**: 193 from the ARCH UPDA recall collection and 517 from ARCHI 1 (63 practice sets; so far every question that appears in more than one set, plus sets 1–17): open it and start. This repository and the website are public, so anyone with the link can see the questions.
 
 **Live app:** <https://lilouch-baka.github.io/upda-gym/>
 
